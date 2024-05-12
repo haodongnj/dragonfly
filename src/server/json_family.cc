@@ -79,7 +79,7 @@ inline JsonType Evaluate(const json::Path& expr, const JsonType& obj) {
 }
 
 facade::OpStatus SetJson(const OpArgs& op_args, string_view key, JsonType&& value) {
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
 
   auto op_res = db_slice.AddOrFind(op_args.db_cntx, key);
   RETURN_ON_BAD_STATUS(op_res);
@@ -192,7 +192,7 @@ error_code JsonReplace(JsonType& instance, string_view path, json::MutateCallbac
 // jsoncons version
 OpStatus UpdateEntry(const OpArgs& op_args, std::string_view key, std::string_view path,
                      json::MutateCallback callback, JsonReplaceVerify verify_op = {}) {
-  auto it_res = op_args.shard->db_slice().FindMutable(op_args.db_cntx, key, OBJ_JSON);
+  auto it_res = op_args.tenant->GetCurrentDbSlice().FindMutable(op_args.db_cntx, key, OBJ_JSON);
   if (!it_res.ok()) {
     return it_res.status();
   }
@@ -226,7 +226,7 @@ OpStatus UpdateEntry(const OpArgs& op_args, std::string_view key, std::string_vi
 // json::Path version.
 OpStatus UpdateEntry(const OpArgs& op_args, string_view key, const json::Path& path,
                      json::MutateCallback cb) {
-  auto it_res = op_args.shard->db_slice().FindMutable(op_args.db_cntx, key, OBJ_JSON);
+  auto it_res = op_args.tenant->GetCurrentDbSlice().FindMutable(op_args.db_cntx, key, OBJ_JSON);
   if (!it_res.ok()) {
     return it_res.status();
   }
@@ -242,7 +242,7 @@ OpStatus UpdateEntry(const OpArgs& op_args, string_view key, const json::Path& p
 }
 
 OpResult<JsonType*> GetJson(const OpArgs& op_args, string_view key) {
-  auto it_res = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_JSON);
+  auto it_res = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_JSON);
   if (!it_res.ok())
     return it_res.status();
 
@@ -688,7 +688,7 @@ OpResult<string> OpDoubleArithmetic(const OpArgs& op_args, string_view key, stri
 OpResult<long> OpDel(const OpArgs& op_args, string_view key, string_view path,
                      optional<JsonPathV2> expression) {
   if (!expression || path.empty()) {
-    auto& db_slice = op_args.shard->db_slice();
+    auto& db_slice = op_args.tenant->GetCurrentDbSlice();
     auto it = db_slice.FindMutable(op_args.db_cntx, key).it;  // post_updater will run immediately
     return long(db_slice.Del(op_args.db_cntx.db_index, it));
   }
@@ -1222,7 +1222,8 @@ OpResult<bool> OpSet(const OpArgs& op_args, string_view key, string_view path,
   // and its not JSON, it would return an error.
   if (path == "." || path == "$") {
     if (is_nx_condition || is_xx_condition) {
-      auto it_res = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_JSON);
+      auto it_res =
+          op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_JSON);
       bool key_exists = (it_res.status() != OpStatus::KEY_NOTFOUND);
       if (is_nx_condition && key_exists) {
         return false;
@@ -1317,7 +1318,7 @@ OpStatus OpMerge(const OpArgs& op_args, string_view key, std::string_view json_s
     return OpStatus::SYNTAX_ERR;
   }
 
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   auto it_res = db_slice.FindMutable(op_args.db_cntx, key, OBJ_JSON);
   if (it_res.ok()) {
     op_args.shard->search_indices()->RemoveDoc(key, op_args.db_cntx, it_res->it->second);

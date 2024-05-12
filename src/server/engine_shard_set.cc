@@ -342,10 +342,9 @@ bool EngineShard::DoDefrag() {
 //     otherwise lower the task priority so that it would not use the CPU when not required
 uint32_t EngineShard::DefragTask() {
   constexpr uint32_t kRunAtLowPriority = 0u;
-  const auto shard_id = db_slice().shard_id();
 
   if (defrag_state_.CheckRequired()) {
-    VLOG(2) << shard_id << ": need to run defrag memory cursor state: " << defrag_state_.cursor
+    VLOG(2) << shard_id_ << ": need to run defrag memory cursor state: " << defrag_state_.cursor
             << ", underutilzation found: " << defrag_state_.underutilized_found;
     if (DoDefrag()) {
       // we didn't finish the scan
@@ -736,7 +735,8 @@ auto EngineShard::AnalyzeTxQueue() const -> TxQueueInfo {
       if (trx->IsGlobal() || (trx->IsMulti() && trx->GetMultiMode() == Transaction::GLOBAL)) {
         info.tx_global++;
       } else {
-        const DbTable* table = db_slice().GetDBTable(trx->GetDbIndex());
+        const DbTable* table =
+            tenants->GetDefaultTenant().GetCurrentDbSlice().GetDBTable(trx->GetDbIndex());
         bool can_run = !HasContendedLocks(sid, trx, table);
         if (can_run) {
           info.tx_runnable++;

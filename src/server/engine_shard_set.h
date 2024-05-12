@@ -245,6 +245,7 @@ class EngineShard {
 
   DefragTaskState defrag_state_;
   std::unique_ptr<TieredStorage> tiered_storage_;
+  // TODO: Move indices to Tenant
   std::unique_ptr<ShardDocIndices> shard_search_indices_;
   std::unique_ptr<BlockingController> blocking_controller_;
 

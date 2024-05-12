@@ -23,6 +23,7 @@
 #include "server/main_service.h"
 #include "server/server_family.h"
 #include "server/server_state.h"
+#include "server/tenant.h"
 
 ABSL_FLAG(std::string, cluster_announce_ip, "", "ip that cluster commands announce to the client");
 ABSL_FLAG(std::string, cluster_node_id, "",
@@ -445,7 +446,7 @@ void DeleteSlots(const SlotRanges& slots_ranges) {
     if (shard == nullptr)
       return;
 
-    shard->db_slice().FlushSlots(slots_ranges);
+    tenants->GetDefaultTenant().GetCurrentDbSlice().FlushSlots(slots_ranges);
   };
   shard_set->pool()->AwaitFiberOnAll(std::move(cb));
 }

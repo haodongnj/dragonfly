@@ -661,7 +661,8 @@ OpResult<StringVec> OpUnion(const OpArgs& op_args, ShardArgs::Iterator start,
   absl::flat_hash_set<string> uniques;
 
   for (; start != end; ++start) {
-    auto find_res = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, *start, OBJ_SET);
+    auto find_res =
+        op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, *start, OBJ_SET);
     if (find_res) {
       const PrimeValue& pv = find_res.value()->second;
       if (IsDenseEncoding(pv)) {
@@ -821,7 +822,7 @@ OpResult<StringVec> OpInter(const Transaction* t, EngineShard* es, bool remove_f
 
 // count - how many elements to pop.
 OpResult<StringVec> OpPop(const OpArgs& op_args, string_view key, unsigned count) {
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   auto find_res = db_slice.FindMutable(op_args.db_cntx, key, OBJ_SET);
   if (!find_res)
     return find_res.status();
@@ -887,7 +888,7 @@ OpResult<StringVec> OpPop(const OpArgs& op_args, string_view key, unsigned count
 
 OpResult<StringVec> OpScan(const OpArgs& op_args, string_view key, uint64_t* cursor,
                            const ScanOpts& scan_op) {
-  auto find_res = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_SET);
+  auto find_res = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_SET);
 
   if (!find_res)
     return find_res.status();

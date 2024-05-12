@@ -188,7 +188,7 @@ void OutputScoredArrayResult(const OpResult<ScoredArray>& result,
 
 OpResult<DbSlice::ItAndUpdater> FindZEntry(const ZParams& zparams, const OpArgs& op_args,
                                            string_view key, size_t member_len) {
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   if (zparams.flags & ZADD_IN_XX) {
     return db_slice.FindMutable(op_args.db_cntx, key, OBJ_ZSET);
   }
@@ -964,7 +964,7 @@ size_t EstimateListpackMinBytes(ScoredMemberSpan members) {
 OpResult<AddResult> OpAdd(const OpArgs& op_args, const ZParams& zparams, string_view key,
                           ScoredMemberSpan members) {
   DCHECK(!members.empty() || zparams.override);
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
 
   if (zparams.override && members.empty()) {
     auto it = db_slice.FindMutable(op_args.db_cntx, key).it;  // post_updater will run immediately
@@ -1372,7 +1372,7 @@ vector<ScoredMap> OpFetch(EngineShard* shard, Transaction* t) {
 
 auto OpPopCount(const ZSetFamily::ZRangeSpec& range_spec, const OpArgs& op_args, string_view key)
     -> OpResult<ScoredArray> {
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
@@ -1386,7 +1386,7 @@ auto OpPopCount(const ZSetFamily::ZRangeSpec& range_spec, const OpArgs& op_args,
 
   auto zlen = pv.Size();
   if (zlen == 0) {
-    CHECK(op_args.shard->db_slice().Del(op_args.db_cntx.db_index, res_it->it));
+    CHECK(op_args.tenant->GetCurrentDbSlice().Del(op_args.db_cntx.db_index, res_it->it));
   }
 
   return iv.PopResult();
@@ -1394,7 +1394,7 @@ auto OpPopCount(const ZSetFamily::ZRangeSpec& range_spec, const OpArgs& op_args,
 
 auto OpRange(const ZSetFamily::ZRangeSpec& range_spec, const OpArgs& op_args, string_view key)
     -> OpResult<ScoredArray> {
-  auto res_it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto res_it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
 
@@ -1409,7 +1409,7 @@ auto OpRange(const ZSetFamily::ZRangeSpec& range_spec, const OpArgs& op_args, st
 
 auto OpRanges(const std::vector<ZSetFamily::ZRangeSpec>& range_specs, const OpArgs& op_args,
               string_view key) -> OpResult<vector<ScoredArray>> {
-  auto res_it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto res_it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
 
@@ -1427,7 +1427,7 @@ auto OpRanges(const std::vector<ZSetFamily::ZRangeSpec>& range_specs, const OpAr
 
 OpResult<unsigned> OpRemRange(const OpArgs& op_args, string_view key,
                               const ZSetFamily::ZRangeSpec& range_spec) {
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
@@ -1440,7 +1440,7 @@ OpResult<unsigned> OpRemRange(const OpArgs& op_args, string_view key,
 
   auto zlen = pv.Size();
   if (zlen == 0) {
-    CHECK(op_args.shard->db_slice().Del(op_args.db_cntx.db_index, res_it->it));
+    CHECK(op_args.tenant->GetCurrentDbSlice().Del(op_args.db_cntx.db_index, res_it->it));
   }
 
   return iv.removed();
@@ -1448,7 +1448,7 @@ OpResult<unsigned> OpRemRange(const OpArgs& op_args, string_view key,
 
 OpResult<unsigned> OpRank(const OpArgs& op_args, string_view key, string_view member,
                           bool reverse) {
-  auto res_it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto res_it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
 
@@ -1494,7 +1494,7 @@ OpResult<unsigned> OpRank(const OpArgs& op_args, string_view key, string_view me
 
 OpResult<unsigned> OpCount(const OpArgs& op_args, std::string_view key,
                            const ZSetFamily::ScoreInterval& interval) {
-  auto res_it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto res_it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
 
@@ -1544,7 +1544,7 @@ OpResult<unsigned> OpCount(const OpArgs& op_args, std::string_view key,
 
 OpResult<unsigned> OpLexCount(const OpArgs& op_args, string_view key,
                               const ZSetFamily::LexInterval& interval) {
-  auto res_it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto res_it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
 
@@ -1586,7 +1586,7 @@ OpResult<unsigned> OpLexCount(const OpArgs& op_args, string_view key,
 }
 
 OpResult<unsigned> OpRem(const OpArgs& op_args, string_view key, ArgSlice members) {
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
@@ -1602,19 +1602,19 @@ OpResult<unsigned> OpRem(const OpArgs& op_args, string_view key, ArgSlice member
   res_it->post_updater.Run();
 
   if (zlen == 0) {
-    CHECK(op_args.shard->db_slice().Del(op_args.db_cntx.db_index, res_it->it));
+    CHECK(op_args.tenant->GetCurrentDbSlice().Del(op_args.db_cntx.db_index, res_it->it));
   }
 
   return deleted;
 }
 
 OpResult<void> OpKeyExisted(const OpArgs& op_args, string_view key) {
-  auto res_it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto res_it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   return res_it.status();
 }
 
 OpResult<double> OpScore(const OpArgs& op_args, string_view key, string_view member) {
-  auto res_it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto res_it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
 
@@ -1631,7 +1631,7 @@ OpResult<double> OpScore(const OpArgs& op_args, string_view key, string_view mem
 }
 
 OpResult<MScoreResponse> OpMScore(const OpArgs& op_args, string_view key, ArgSlice members) {
-  auto res_it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto res_it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   if (!res_it)
     return res_it.status();
 
@@ -1652,7 +1652,7 @@ OpResult<MScoreResponse> OpMScore(const OpArgs& op_args, string_view key, ArgSli
 
 OpResult<StringVec> OpScan(const OpArgs& op_args, std::string_view key, uint64_t* cursor,
                            const ScanOpts& scan_op) {
-  auto find_res = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto find_res = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
 
   if (!find_res)
     return find_res.status();

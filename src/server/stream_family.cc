@@ -605,7 +605,7 @@ int StreamTrim(const AddTrimOpts& opts, stream* s) {
 
 OpResult<streamID> OpAdd(const OpArgs& op_args, const AddTrimOpts& opts, CmdArgList args) {
   DCHECK(!args.empty() && args.size() % 2 == 0);
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   DbSlice::AddOrFindResult add_res;
 
   if (opts.no_mkstream) {
@@ -657,7 +657,7 @@ OpResult<streamID> OpAdd(const OpArgs& op_args, const AddTrimOpts& opts, CmdArgL
 }
 
 OpResult<RecordVec> OpRange(const OpArgs& op_args, string_view key, const RangeOpts& opts) {
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindReadOnly(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -801,7 +801,7 @@ OpResult<vector<pair<string_view, streamID>>> OpLastIDs(const OpArgs& op_args,
                                                         const ShardArgs& args) {
   DCHECK(!args.Empty());
 
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
 
   vector<pair<string_view, streamID>> last_ids;
   for (string_view key : args) {
@@ -866,7 +866,7 @@ vector<RecordVec> OpRead(const OpArgs& op_args, const ShardArgs& shard_args, con
 }
 
 OpResult<uint32_t> OpLen(const OpArgs& op_args, string_view key) {
-  auto& db_slice = op_args.shard->db_slice();
+  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindReadOnly(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
