@@ -719,6 +719,8 @@ auto EngineShard::AnalyzeTxQueue() const -> TxQueueInfo {
   info.tx_total = queue->size();
   unsigned max_db_id = 0;
 
+  auto& db_slice = tenants->GetDefaultTenant().GetCurrentDbSlice();
+
   do {
     auto value = queue->At(cur);
     Transaction* trx = std::get<Transaction*>(value);
@@ -735,8 +737,7 @@ auto EngineShard::AnalyzeTxQueue() const -> TxQueueInfo {
       if (trx->IsGlobal() || (trx->IsMulti() && trx->GetMultiMode() == Transaction::GLOBAL)) {
         info.tx_global++;
       } else {
-        const DbTable* table =
-            tenants->GetDefaultTenant().GetCurrentDbSlice().GetDBTable(trx->GetDbIndex());
+        const DbTable* table = db_slice.GetDBTable(trx->GetDbIndex());
         bool can_run = !HasContendedLocks(sid, trx, table);
         if (can_run) {
           info.tx_runnable++;
@@ -748,7 +749,7 @@ auto EngineShard::AnalyzeTxQueue() const -> TxQueueInfo {
 
   // Analyze locks
   for (unsigned i = 0; i <= max_db_id; ++i) {
-    const DbTable* table = db_slice().GetDBTable(i);
+    const DbTable* table = db_slice.GetDBTable(i);
     if (table == nullptr)
       continue;
 
@@ -862,7 +863,9 @@ void EngineShardSet::TEST_EnableHeartBeat() {
 }
 
 void EngineShardSet::TEST_EnableCacheMode() {
-  RunBriefInParallel([](EngineShard* shard) { shard->db_slice().TEST_EnableCacheMode(); });
+  RunBriefInParallel([](EngineShard* shard) {
+    tenants->GetDefaultTenant().GetCurrentDbSlice().TEST_EnableCacheMode();
+  });
 }
 
 ShardId Shard(string_view v, ShardId shard_num) {

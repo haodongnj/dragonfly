@@ -66,14 +66,13 @@ struct DbContext {
 
 struct OpArgs {
   EngineShard* shard = nullptr;
-  Tenant* tenant = nullptr;
   const Transaction* tx = nullptr;
   DbContext db_cntx;
 
   OpArgs() = default;
 
-  OpArgs(EngineShard* s, Tenant* tenant, const Transaction* tx, const DbContext& cntx)
-      : shard(s), tenant(tenant), tx(tx), db_cntx(cntx) {
+  OpArgs(EngineShard* s, const Transaction* tx, const DbContext& cntx)
+      : shard(s), tx(tx), db_cntx(cntx) {
   }
 };
 

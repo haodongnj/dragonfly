@@ -325,7 +325,8 @@ void Renamer::Finalize(Transaction* t, bool skip_exist_dest) {
 
 OpStatus Renamer::MoveSrc(Transaction* t, EngineShard* es) {
   if (es->shard_id() == src_sid_) {  // Handle source key.
-    auto res = t->GetTenant().GetCurrentDbSlice().FindMutable(t->GetDbContext(), src_res_.key);
+    auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+    auto res = db_slice.FindMutable(t->GetDbContext(), src_res_.key);
     auto& it = res.it;
     CHECK(IsValid(it));
 
@@ -341,7 +342,7 @@ OpStatus Renamer::MoveSrc(Transaction* t, EngineShard* es) {
     }
 
     res.post_updater.Run();
-    CHECK(es->db_slice().Del(t->GetDbIndex(), it));  // delete the entry with empty value in it.
+    CHECK(db_slice.Del(t->GetDbIndex(), it));  // delete the entry with empty value in it.
     if (es->journal()) {
       RecordJournal(t->GetOpArgs(es), "DEL", ArgSlice{src_res_.key}, 2);
     }
@@ -352,7 +353,7 @@ OpStatus Renamer::MoveSrc(Transaction* t, EngineShard* es) {
 
 OpStatus Renamer::UpdateDest(Transaction* t, EngineShard* es) {
   if (es->shard_id() != src_sid_) {
-    auto& db_slice = es->db_slice();
+    auto& db_slice = t->GetTenant().GetCurrentDbSlice();
     string_view dest_key = dest_res_.key;
     auto res = db_slice.FindMutable(t->GetDbContext(), dest_key);
     auto& dest_it = res.it;
@@ -405,7 +406,7 @@ OpStatus Renamer::UpdateDest(Transaction* t, EngineShard* es) {
 }
 
 OpStatus OpPersist(const OpArgs& op_args, string_view key) {
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto res = db_slice.FindMutable(op_args.db_cntx, key);
 
   if (!IsValid(res.it)) {
@@ -421,7 +422,7 @@ OpStatus OpPersist(const OpArgs& op_args, string_view key) {
 }
 
 OpResult<std::string> OpDump(const OpArgs& op_args, string_view key) {
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto [it, expire_it] = db_slice.FindReadOnly(op_args.db_cntx, key);
 
   if (IsValid(it)) {
@@ -441,7 +442,7 @@ OpResult<bool> OnRestore(const OpArgs& op_args, std::string_view key, std::strin
     return OpStatus::OUT_OF_RANGE;
   }
 
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   // The redis impl (see cluster.c function restoreCommand), remove the old key if
   // the replace option is set, so lets do the same here
   {
@@ -474,7 +475,7 @@ OpResult<bool> OnRestore(const OpArgs& op_args, std::string_view key, std::strin
 
 bool ScanCb(const OpArgs& op_args, PrimeIterator prime_it, const ScanOpts& opts, string* scratch,
             StringVec* res) {
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
 
   DbSlice::Iterator it = DbSlice::Iterator::FromPrime(prime_it);
   if (prime_it->second.HasExpire()) {
@@ -503,7 +504,7 @@ bool ScanCb(const OpArgs& op_args, PrimeIterator prime_it, const ScanOpts& opts,
 }
 
 void OpScan(const OpArgs& op_args, const ScanOpts& scan_opts, uint64_t* cursor, StringVec* vec) {
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   DCHECK(db_slice.IsDbValid(op_args.db_cntx.db_index));
 
   unsigned cnt = 0;
@@ -540,7 +541,9 @@ uint64_t ScanGeneric(uint64_t cursor, const ScanOpts& scan_opts, StringVec* keys
   }
 
   cursor >>= 10;
-  DbContext db_cntx{.db_index = cntx->conn_state.db_index, .time_now_ms = GetCurrentTimeMs()};
+  DbContext db_cntx{.tenant = &cntx->transaction->GetTenant(),
+                    .db_index = cntx->conn_state.db_index,
+                    .time_now_ms = GetCurrentTimeMs()};
 
   do {
     ess->Await(sid, [&] {
@@ -571,7 +574,7 @@ uint64_t ScanGeneric(uint64_t cursor, const ScanOpts& scan_opts, StringVec* keys
 }
 
 OpStatus OpExpire(const OpArgs& op_args, string_view key, const DbSlice::ExpireParams& params) {
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto find_res = db_slice.FindMutable(op_args.db_cntx, key);
   if (!IsValid(find_res.it)) {
     return OpStatus::KEY_NOTFOUND;
@@ -598,7 +601,7 @@ OpStatus OpExpire(const OpArgs& op_args, string_view key, const DbSlice::ExpireP
 // returns -2 if the key was not found, -3 if the field was not found,
 // -1 if ttl on the field was not found.
 OpResult<long> OpFieldTtl(Transaction* t, EngineShard* shard, string_view key, string_view field) {
-  auto& db_slice = shard->db_slice();
+  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
   const DbContext& db_cntx = t->GetDbContext();
   auto [it, expire_it] = db_slice.FindReadOnly(db_cntx, key);
   if (!IsValid(it))
@@ -619,7 +622,7 @@ OpResult<long> OpFieldTtl(Transaction* t, EngineShard* shard, string_view key, s
 
 OpResult<uint32_t> OpDel(const OpArgs& op_args, const ShardArgs& keys) {
   DVLOG(1) << "Del: " << keys.Front();
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
 
   uint32_t res = 0;
 
@@ -637,7 +640,7 @@ OpResult<uint32_t> OpDel(const OpArgs& op_args, const ShardArgs& keys) {
 OpResult<uint32_t> OpStick(const OpArgs& op_args, const ShardArgs& keys) {
   DVLOG(1) << "Stick: " << keys.Front();
 
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
 
   uint32_t res = 0;
   for (string_view key : keys) {
@@ -1022,7 +1025,7 @@ OpResultTyped<SortEntryList> OpFetchSortEntries(const OpArgs& op_args, std::stri
                                                 bool alpha) {
   using namespace container_utils;
 
-  auto it = op_args.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key).it;
+  auto it = op_args.db_cntx.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key).it;
   if (!IsValid(it) || !IsContainer(it->second)) {
     return OpStatus::KEY_NOTFOUND;
   }
@@ -1274,8 +1277,9 @@ void GenericFamily::Select(CmdArgList args, ConnectionContext* cntx) {
     return cntx->SendError(kDbIndOutOfRangeErr);
   }
   cntx->conn_state.db_index = index;
-  auto cb = [index](EngineShard* shard) {
-    shard->db_slice().ActivateDb(index);
+  auto cb = [cntx, index](EngineShard* shard) {
+    auto& db_slice = cntx->transaction->GetTenant().GetCurrentDbSlice();
+    db_slice.ActivateDb(index);
     return OpStatus::OK;
   };
   shard_set->RunBriefInParallel(std::move(cb));
@@ -1304,7 +1308,8 @@ void GenericFamily::Type(CmdArgList args, ConnectionContext* cntx) {
   std::string_view key = ArgS(args, 0);
 
   auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<int> {
-    auto it = shard->db_slice().FindReadOnly(t->GetDbContext(), key).it;
+    auto& db_slice = cntx->transaction->GetTenant().GetCurrentDbSlice();
+    auto it = db_slice.FindReadOnly(t->GetDbContext(), key).it;
     if (!it.is_done()) {
       return it->second.ObjType();
     } else {
@@ -1397,7 +1402,7 @@ void GenericFamily::Scan(CmdArgList args, ConnectionContext* cntx) {
 }
 
 OpResult<uint64_t> GenericFamily::OpTtl(Transaction* t, EngineShard* shard, string_view key) {
-  auto& db_slice = shard->db_slice();
+  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
   auto [it, expire_it] = db_slice.FindReadOnly(t->GetDbContext(), key);
   if (!IsValid(it))
     return OpStatus::KEY_NOTFOUND;
@@ -1412,7 +1417,7 @@ OpResult<uint64_t> GenericFamily::OpTtl(Transaction* t, EngineShard* shard, stri
 
 OpResult<uint32_t> GenericFamily::OpExists(const OpArgs& op_args, const ShardArgs& keys) {
   DVLOG(1) << "Exists: " << keys.Front();
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   uint32_t res = 0;
 
   for (string_view key : keys) {
@@ -1425,7 +1430,7 @@ OpResult<uint32_t> GenericFamily::OpExists(const OpArgs& op_args, const ShardArg
 OpResult<void> GenericFamily::OpRen(const OpArgs& op_args, string_view from_key, string_view to_key,
                                     bool skip_exists) {
   auto* es = op_args.shard;
-  auto& db_slice = es->db_slice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto from_res = db_slice.FindMutable(op_args.db_cntx, from_key);
   if (!IsValid(from_res.it))
     return OpStatus::KEY_NOTFOUND;
@@ -1486,7 +1491,7 @@ OpResult<void> GenericFamily::OpRen(const OpArgs& op_args, string_view from_key,
 // as a global transaction.
 // TODO: Allow running OpMove without a global transaction.
 OpStatus GenericFamily::OpMove(const OpArgs& op_args, string_view key, DbIndex target_db) {
-  auto& db_slice = op_args.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
 
   // Fetch value at key in current db.
   auto from_res = db_slice.FindMutable(op_args.db_cntx, key);
@@ -1529,14 +1534,16 @@ void GenericFamily::RandomKey(CmdArgList args, ConnectionContext* cntx) {
 
   absl::BitGen bitgen;
   atomic_size_t candidates_counter{0};
-  DbContext db_cntx{.db_index = cntx->conn_state.db_index};
+  DbContext db_cntx{.tenant = &cntx->transaction->GetTenant(),
+                    .db_index = cntx->conn_state.db_index};
   ScanOpts scan_opts;
   scan_opts.limit = 3;  // number of entries per shard
   std::vector<StringVec> candidates_collection(shard_set->size());
 
   shard_set->RunBriefInParallel(
       [&](EngineShard* shard) {
-        auto [prime_table, expire_table] = shard->db_slice().GetTables(db_cntx.db_index);
+        auto [prime_table, expire_table] =
+            cntx->transaction->GetTenant().GetCurrentDbSlice().GetTables(db_cntx.db_index);
         if (prime_table->size() == 0) {
           return;
         }

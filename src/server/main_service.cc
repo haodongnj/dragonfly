@@ -1810,6 +1810,7 @@ Transaction::MultiMode DetermineMultiMode(ScriptMgr::ScriptParams params) {
 optional<bool> StartMultiEval(DbIndex dbid, CmdArgList keys, ScriptMgr::ScriptParams params,
                               ConnectionContext* cntx) {
   Transaction* trans = cntx->transaction;
+  Tenant* tenant = &trans->GetTenant();
   Transaction::MultiMode script_mode = DetermineMultiMode(params);
   Transaction::MultiMode multi_mode = trans->GetMultiMode();
   // Check if eval is already part of a running multi transaction
@@ -1829,10 +1830,10 @@ optional<bool> StartMultiEval(DbIndex dbid, CmdArgList keys, ScriptMgr::ScriptPa
 
   switch (script_mode) {
     case Transaction::GLOBAL:
-      trans->StartMultiGlobal(dbid);
+      trans->StartMultiGlobal(tenant, dbid);
       return true;
     case Transaction::LOCK_AHEAD:
-      trans->StartMultiLockedAhead(dbid, keys);
+      trans->StartMultiLockedAhead(tenant, dbid, keys);
       return true;
     case Transaction::NON_ATOMIC:
       trans->StartMultiNonAtomic();
@@ -1957,7 +1958,8 @@ void Service::EvalInternal(CmdArgList args, const EvalArgs& eval_args, Interpret
     });
 
     ++ServerState::tlocal()->stats.eval_shardlocal_coordination_cnt;
-    tx->PrepareMultiForScheduleSingleHop(*sid, tx->GetDbIndex(), args);
+    tx->PrepareMultiForScheduleSingleHop(&cntx->transaction->GetTenant(), *sid, tx->GetDbIndex(),
+                                         args);
     tx->ScheduleSingleHop([&](Transaction*, EngineShard*) {
       boost::intrusive_ptr<Transaction> stub_tx =
           new Transaction{tx, *sid, slot_checker.GetUniqueSlotId()};
@@ -2107,11 +2109,11 @@ void StartMultiExec(DbIndex dbid, Transaction* trans, ConnectionState::ExecInfo*
                     Transaction::MultiMode multi_mode) {
   switch (multi_mode) {
     case Transaction::GLOBAL:
-      trans->StartMultiGlobal(dbid);
+      trans->StartMultiGlobal(&trans->GetTenant(), dbid);
       break;
     case Transaction::LOCK_AHEAD: {
       auto vec = CollectAllKeys(exec_info);
-      trans->StartMultiLockedAhead(dbid, absl::MakeSpan(vec));
+      trans->StartMultiLockedAhead(&trans->GetTenant(), dbid, absl::MakeSpan(vec));
     } break;
     case Transaction::NON_ATOMIC:
       trans->StartMultiNonAtomic();
@@ -2201,7 +2203,8 @@ void Service::Exec(CmdArgList args, ConnectionContext* cntx) {
         CmdArgList args = absl::MakeSpan(arg_vec);
 
         if (scmd.Cid()->IsTransactional()) {
-          OpStatus st = cntx->transaction->InitByArgs(cntx->conn_state.db_index, args);
+          OpStatus st = cntx->transaction->InitByArgs(&cntx->transaction->GetTenant(),
+                                                      cntx->conn_state.db_index, args);
           if (st != OpStatus::OK) {
             cntx->SendError(st);
             break;

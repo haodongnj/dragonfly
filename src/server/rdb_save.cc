@@ -39,6 +39,7 @@ extern "C" {
 #include "server/search/doc_index.h"
 #include "server/serializer_commons.h"
 #include "server/snapshot.h"
+#include "server/tenant.h"
 #include "server/tiering/common.h"
 #include "util/fibers/simple_channel.h"
 
@@ -1251,15 +1252,17 @@ error_code RdbSaver::Impl::ConsumeChannel(const Cancellation* cll) {
 void RdbSaver::Impl::StartSnapshotting(bool stream_journal, const Cancellation* cll,
                                        EngineShard* shard) {
   auto& s = GetSnapshot(shard);
-  s = std::make_unique<SliceSnapshot>(&shard->db_slice(), &channel_, compression_mode_);
+  auto& db_slice = tenants->GetDefaultTenant().GetCurrentDbSlice();
+  s = std::make_unique<SliceSnapshot>(&db_slice, &channel_, compression_mode_);
 
   s->Start(stream_journal, cll);
 }
 
 void RdbSaver::Impl::StartIncrementalSnapshotting(Context* cntx, EngineShard* shard,
                                                   LSN start_lsn) {
+  auto& db_slice = tenants->GetDefaultTenant().GetCurrentDbSlice();
   auto& s = GetSnapshot(shard);
-  s = std::make_unique<SliceSnapshot>(&shard->db_slice(), &channel_, compression_mode_);
+  s = std::make_unique<SliceSnapshot>(&db_slice, &channel_, compression_mode_);
 
   s->StartIncremental(cntx, start_lsn);
 }

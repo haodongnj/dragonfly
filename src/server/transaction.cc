@@ -1067,7 +1067,7 @@ IntentLock::Mode Transaction::LockMode() const {
 OpArgs Transaction::GetOpArgs(EngineShard* shard) const {
   DCHECK(IsActive(shard->shard_id()));
   DCHECK((multi_ && multi_->role == SQUASHED_STUB) || (run_barrier_.DEBUG_Count() > 0));
-  return OpArgs{shard, tenant_, this, GetDbContext()};
+  return OpArgs{shard, this, GetDbContext()};
 }
 
 // This function should not block since it's run via RunBriefInParallel.
