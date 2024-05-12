@@ -57,16 +57,11 @@ class EngineShard {
   }
 
   ShardId shard_id() const {
-    return db_slice_.shard_id();
+    return shard_id_;
   }
 
-  DbSlice& db_slice() {
-    return db_slice_;
-  }
-
-  const DbSlice& db_slice() const {
-    return db_slice_;
-  }
+  DbSlice& default_db_slice();
+  const DbSlice& default_db_slice() const;
 
   PMR_NS::memory_resource* memory_resource() {
     return &mi_resource_;
@@ -231,7 +226,7 @@ class EngineShard {
 
   TxQueue txq_;
   MiMemoryResource mi_resource_;
-  DbSlice db_slice_;
+  ShardId shard_id_;
 
   Stats stats_;
 

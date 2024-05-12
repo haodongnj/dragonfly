@@ -166,8 +166,9 @@ Transaction::~Transaction() {
            << " destroyed";
 }
 
-void Transaction::InitBase(DbIndex dbid, CmdArgList args) {
+void Transaction::InitBase(Tenant* tenant, DbIndex dbid, CmdArgList args) {
   global_ = false;
+  tenant_ = tenant;
   db_index_ = dbid;
   full_args_ = args;
   local_result_ = OpStatus::OK;
@@ -379,8 +380,8 @@ void Transaction::InitByKeys(const KeyIndex& key_index) {
   }
 }
 
-OpStatus Transaction::InitByArgs(DbIndex index, CmdArgList args) {
-  InitBase(index, args);
+OpStatus Transaction::InitByArgs(Tenant* tenant, DbIndex index, CmdArgList args) {
+  InitBase(tenant, index, args);
 
   if ((cid_->opt_mask() & CO::GLOBAL_TRANS) > 0) {
     InitGlobal();
@@ -413,7 +414,7 @@ void Transaction::PrepareSquashedMultiHop(const CommandId* cid,
 
   MultiSwitchCmd(cid);
 
-  InitBase(db_index_, {});
+  InitBase(tenant_, db_index_, {});
 
   // Because squashing already determines active shards by partitioning commands,
   // we don't have to work with keys manually and can just mark active shards.
@@ -434,19 +435,20 @@ void Transaction::PrepareSquashedMultiHop(const CommandId* cid,
   MultiBecomeSquasher();
 }
 
-void Transaction::StartMultiGlobal(DbIndex dbid) {
+void Transaction::StartMultiGlobal(Tenant* tenant, DbIndex dbid) {
   CHECK(multi_);
   CHECK(shard_data_.empty());  // Make sure default InitByArgs didn't run.
 
   multi_->mode = GLOBAL;
-  InitBase(dbid, {});
+  InitBase(tenant, dbid, {});
   InitGlobal();
   multi_->lock_mode = IntentLock::EXCLUSIVE;
 
   ScheduleInternal();
 }
 
-void Transaction::StartMultiLockedAhead(DbIndex dbid, CmdArgList keys, bool skip_scheduling) {
+void Transaction::StartMultiLockedAhead(Tenant* tenant, DbIndex dbid, CmdArgList keys,
+                                        bool skip_scheduling) {
   DVLOG(1) << "StartMultiLockedAhead on " << keys.size() << " keys";
 
   DCHECK(multi_);
@@ -457,7 +459,7 @@ void Transaction::StartMultiLockedAhead(DbIndex dbid, CmdArgList keys, bool skip
 
   PrepareMultiFps(keys);
 
-  InitBase(dbid, keys);
+  InitBase(tenant, dbid, keys);
   InitByKeys(KeyIndex::Range(0, keys.size()));
 
   if (!skip_scheduling)

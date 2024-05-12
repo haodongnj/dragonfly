@@ -22,6 +22,7 @@ extern "C" {
 #include "server/cluster/cluster_defs.h"
 #include "server/search/doc_index.h"
 #include "server/server_state.h"
+#include "server/tenant.h"
 #include "server/tiered_storage.h"
 #include "server/tiering/common.h"
 #include "server/transaction.h"
@@ -278,7 +279,8 @@ bool EngineShard::DoDefrag() {
   constexpr size_t kMaxTraverses = 40;
   const float threshold = GetFlag(FLAGS_mem_defrag_page_utilization_threshold);
 
-  auto& slice = db_slice();
+  // TODO: enable tiered storage on non-default db slice
+  DbSlice& slice = tenants->GetDefaultTenant().GetDbSlice(shard_->shard_id());
 
   // If we moved to an invalid db, skip as long as it's not the last one
   while (!slice.IsDbValid(defrag_state_.dbid) && defrag_state_.dbid + 1 < slice.db_array_size())
@@ -357,13 +359,12 @@ EngineShard::EngineShard(util::ProactorBase* pb, mi_heap_t* heap)
     : queue_(1, kQueueLen),
       txq_([](const Transaction* t) { return t->txid(); }),
       mi_resource_(heap),
-      db_slice_(pb->GetPoolIndex(), GetFlag(FLAGS_cache_mode), this) {
+      shard_id_(pb->GetPoolIndex()) {
   tmp_str1 = sdsempty();
 
-  db_slice_.UpdateExpireBase(absl::GetCurrentTimeNanos() / 1000000, 0);
   // start the defragmented task here
   defrag_task_ = pb->AddOnIdleTask([this]() { return this->DefragTask(); });
-  queue_.Start(absl::StrCat("shard_queue_", db_slice_.shard_id()));
+  queue_.Start(absl::StrCat("shard_queue_", shard_id()));
 }
 
 EngineShard::~EngineShard() {
@@ -411,7 +412,9 @@ void EngineShard::InitThreadLocal(ProactorBase* pb, bool update_db_time, size_t 
     LOG_IF(FATAL, pb->GetKind() != ProactorBase::IOURING)
         << "Only ioring based backing storage is supported. Exiting...";
 
-    shard_->tiered_storage_ = make_unique<TieredStorage>(&shard_->db_slice_, max_file_size);
+    // TODO: enable tiered storage on non-default db slice
+    DbSlice& db_slice = tenants->GetDefaultTenant().GetDbSlice(shard_->shard_id());
+    shard_->tiered_storage_ = make_unique<TieredStorage>(&db_slice, max_file_size);
     error_code ec = shard_->tiered_storage_->Open(backing_prefix);
     CHECK(!ec) << ec.message();
   }
@@ -430,7 +433,7 @@ void EngineShard::DestroyThreadLocal() {
   if (!shard_)
     return;
 
-  uint32_t index = shard_->db_slice_.shard_id();
+  uint32_t index = shard_->shard_id();
   mi_heap_t* tlh = shard_->mi_resource_.heap();
 
   shard_->Shutdown();
@@ -588,22 +591,24 @@ void EngineShard::Heartbeat() {
   DbContext db_cntx;
   db_cntx.time_now_ms = GetCurrentTimeMs();
 
-  for (unsigned i = 0; i < db_slice_.db_array_size(); ++i) {
-    if (!db_slice_.IsDbValid(i))
+  // TODO: iterate over tenants
+  DbSlice& db_slice = tenants->GetDefaultTenant().GetDbSlice(shard_id());
+  for (unsigned i = 0; i < db_slice.db_array_size(); ++i) {
+    if (!db_slice.IsDbValid(i))
       continue;
 
     db_cntx.db_index = i;
-    auto [pt, expt] = db_slice_.GetTables(i);
+    auto [pt, expt] = db_slice.GetTables(i);
     if (expt->size() > pt->size() / 4) {
-      DbSlice::DeleteExpiredStats stats = db_slice_.DeleteExpiredStep(db_cntx, ttl_delete_target);
+      DbSlice::DeleteExpiredStats stats = db_slice.DeleteExpiredStep(db_cntx, ttl_delete_target);
 
       counter_[TTL_TRAVERSE].IncBy(stats.traversed);
       counter_[TTL_DELETE].IncBy(stats.deleted);
     }
 
     // if our budget is below the limit
-    if (db_slice_.memory_budget() < eviction_redline) {
-      db_slice_.FreeMemWithEvictionStep(i, eviction_redline - db_slice_.memory_budget());
+    if (db_slice.memory_budget() < eviction_redline) {
+      db_slice.FreeMemWithEvictionStep(i, eviction_redline - db_slice.memory_budget());
     }
   }
 
@@ -664,13 +669,14 @@ void EngineShard::CacheStats() {
 
   // Used memory for this shard.
   size_t used_mem = UsedMemory();
-  cached_stats[db_slice_.shard_id()].used_memory.store(used_mem, memory_order_relaxed);
+  DbSlice& db_slice = tenants->GetDefaultTenant().GetDbSlice(shard_id());
+  cached_stats[db_slice.shard_id()].used_memory.store(used_mem, memory_order_relaxed);
   ssize_t free_mem = max_memory_limit - used_mem_current.load(memory_order_relaxed);
 
   size_t entries = 0;
   size_t table_memory = 0;
-  for (size_t i = 0; i < db_slice_.db_array_size(); ++i) {
-    DbTable* table = db_slice_.GetDBTable(i);
+  for (size_t i = 0; i < db_slice.db_array_size(); ++i) {
+    DbTable* table = db_slice.GetDBTable(i);
     if (table) {
       entries += table->prime.size();
       table_memory += (table->prime.mem_usage() + table->expire.mem_usage());
@@ -679,7 +685,7 @@ void EngineShard::CacheStats() {
   size_t obj_memory = table_memory <= used_mem ? used_mem - table_memory : 0;
 
   size_t bytes_per_obj = entries > 0 ? obj_memory / entries : 0;
-  db_slice_.SetCachedParams(free_mem / shard_set->size(), bytes_per_obj);
+  db_slice.SetCachedParams(free_mem / shard_set->size(), bytes_per_obj);
 }
 
 size_t EngineShard::UsedMemory() const {

@@ -14,6 +14,7 @@ namespace dfly {
 
 class EngineShard;
 class Transaction;
+class Tenant;
 
 using DbIndex = uint16_t;
 using ShardId = uint16_t;
@@ -58,6 +59,7 @@ struct KeyIndex {
 };
 
 struct DbContext {
+  Tenant* tenant = nullptr;
   DbIndex db_index = 0;
   uint64_t time_now_ms = 0;
 };

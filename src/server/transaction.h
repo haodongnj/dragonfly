@@ -22,6 +22,7 @@
 #include "server/common.h"
 #include "server/journal/types.h"
 #include "server/table.h"
+#include "server/tenant.h"
 #include "server/tx_base.h"
 #include "util/fibers/synchronization.h"
 
@@ -175,7 +176,7 @@ class Transaction {
                        std::optional<cluster::SlotId> slot_id);
 
   // Initialize from command (args) on specific db.
-  OpStatus InitByArgs(DbIndex index, CmdArgList args);
+  OpStatus InitByArgs(Tenant* tenant, DbIndex index, CmdArgList args);
 
   // Get command arguments for specific shard. Called from shard thread.
   ShardArgs GetShardArgs(ShardId sid) const;
@@ -223,10 +224,11 @@ class Transaction {
   void PrepareSquashedMultiHop(const CommandId* cid, absl::FunctionRef<bool(ShardId)> enabled);
 
   // Start multi in GLOBAL mode.
-  void StartMultiGlobal(DbIndex dbid);
+  void StartMultiGlobal(Tenant* tenant, DbIndex dbid);
 
   // Start multi in LOCK_AHEAD mode with given keys.
-  void StartMultiLockedAhead(DbIndex dbid, CmdArgList keys, bool skip_scheduling = false);
+  void StartMultiLockedAhead(Tenant* tenant, DbIndex dbid, CmdArgList keys,
+                             bool skip_scheduling = false);
 
   // Start multi in NON_ATOMIC mode.
   void StartMultiNonAtomic();
@@ -308,7 +310,11 @@ class Transaction {
   bool IsGlobal() const;
 
   DbContext GetDbContext() const {
-    return DbContext{.db_index = db_index_, .time_now_ms = time_now_ms_};
+    return DbContext{.tenant = tenant_, .db_index = db_index_, .time_now_ms = time_now_ms_};
+  }
+
+  Tenant& GetTenant() const {
+    return *tenant_;
   }
 
   DbIndex GetDbIndex() const {
@@ -473,7 +479,7 @@ class Transaction {
   };
 
   // Init basic fields and reset re-usable.
-  void InitBase(DbIndex dbid, CmdArgList args);
+  void InitBase(Tenant* tenant, DbIndex dbid, CmdArgList args);
 
   // Init as a global transaction.
   void InitGlobal();
@@ -611,6 +617,7 @@ class Transaction {
 
   TxId txid_{0};
   bool global_{false};
+  Tenant* tenant_{nullptr};
   DbIndex db_index_{0};
   uint64_t time_now_ms_{0};
 

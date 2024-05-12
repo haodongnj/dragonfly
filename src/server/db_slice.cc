@@ -624,7 +624,7 @@ bool DbSlice::Del(DbIndex db_ind, Iterator it) {
   if (doc_del_cb_ && (obj_type == OBJ_JSON || obj_type == OBJ_HASH)) {
     string tmp;
     string_view key = it->first.GetSlice(&tmp);
-    DbContext cntx{db_ind, GetCurrentTimeMs()};
+    DbContext cntx{nullptr, db_ind, GetCurrentTimeMs()};
     doc_del_cb_(key, cntx, it->second);
   }
   fetched_items_.erase(it->first.AsRef());
