@@ -1637,7 +1637,7 @@ void Service::Watch(CmdArgList args, ConnectionContext* cntx) {
   auto cb = [&](Transaction* t, EngineShard* shard) {
     ShardArgs largs = t->GetShardArgs(shard->shard_id());
     for (auto k : largs) {
-      shard->db_slice().RegisterWatchedKey(cntx->db_index(), k, &exec_info);
+      t->GetTenant().GetCurrentDbSlice().RegisterWatchedKey(cntx->db_index(), k, &exec_info);
     }
 
     auto res = GenericFamily::OpExists(t->GetOpArgs(shard), largs);
@@ -1656,7 +1656,7 @@ void Service::Watch(CmdArgList args, ConnectionContext* cntx) {
 }
 
 void Service::Unwatch(CmdArgList args, ConnectionContext* cntx) {
-  UnwatchAllKeys(&cntx->transaction->GetDefaultTenant(), &cntx->conn_state.exec_info);
+  UnwatchAllKeys(&cntx->transaction->GetTenant(), &cntx->conn_state.exec_info);
   return cntx->SendOk();
 }
 
@@ -2053,7 +2053,8 @@ bool CheckWatchedKeyExpiry(ConnectionContext* cntx, const CommandRegistry& regis
   };
 
   cntx->transaction->MultiSwitchCmd(registry.Find(EXISTS));
-  cntx->transaction->InitByArgs(cntx->conn_state.db_index, CmdArgList{str_list});
+  cntx->transaction->InitByArgs(&cntx->transaction->GetTenant(), cntx->conn_state.db_index,
+                                CmdArgList{str_list});
   OpStatus status = cntx->transaction->ScheduleSingleHop(std::move(cb));
   CHECK_EQ(OpStatus::OK, status);
 

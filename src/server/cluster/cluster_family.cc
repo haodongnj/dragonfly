@@ -595,7 +595,7 @@ void ClusterFamily::DflyClusterGetSlotInfo(CmdArgList args, ConnectionContext* c
 
     lock_guard lk(mu);
     for (auto& [slot, data] : slots_stats) {
-      data += shard->db_slice().GetSlotStats(slot);
+      data += tenants->GetDefaultTenant().GetCurrentDbSlice().GetSlotStats(slot);
     }
   };
 
@@ -672,7 +672,7 @@ static uint64_t GetKeyCount(const SlotRanges& slots) {
     uint64_t shard_keys = 0;
     for (const SlotRange& range : slots) {
       for (SlotId slot = range.start; slot <= range.end; slot++) {
-        shard_keys += shard->db_slice().GetSlotStats(slot).key_count;
+        shard_keys += tenants->GetDefaultTenant().GetCurrentDbSlice().GetSlotStats(slot).key_count;
       }
     }
     keys.fetch_add(shard_keys);
@@ -803,7 +803,7 @@ bool RemoveIncomingMigrationImpl(std::vector<std::shared_ptr<IncomingSlotMigrati
         << ", slots: " << SlotRange::ToString(*removed_ranges);
     shard_set->pool()->DispatchOnAll([removed_ranges](unsigned, ProactorBase*) {
       if (EngineShard* shard = EngineShard::tlocal(); shard) {
-        shard->db_slice().FlushSlots(*removed_ranges);
+        tenants->GetDefaultTenant().GetCurrentDbSlice().FlushSlots(*removed_ranges);
       }
     });
   }

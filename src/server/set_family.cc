@@ -420,8 +420,7 @@ SvArray ToSvArray(const absl::flat_hash_set<std::string_view>& set) {
 // if overwrite is true then OpAdd writes vals into the key and discards its previous value.
 OpResult<uint32_t> OpAdd(const OpArgs& op_args, std::string_view key, ArgSlice vals, bool overwrite,
                          bool journal_update) {
-  auto* es = op_args.shard;
-  auto& db_slice = es->db_slice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
 
   VLOG(2) << "OpAdd(" << key << ")";
 
@@ -504,8 +503,7 @@ OpResult<uint32_t> OpAdd(const OpArgs& op_args, std::string_view key, ArgSlice v
 
 OpResult<uint32_t> OpAddEx(const OpArgs& op_args, string_view key, uint32_t ttl_sec,
                            ArgSlice vals) {
-  auto* es = op_args.shard;
-  auto& db_slice = es->db_slice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
 
   auto op_res = db_slice.AddOrFind(op_args.db_cntx, key);
   RETURN_ON_BAD_STATUS(op_res);
@@ -540,8 +538,7 @@ OpResult<uint32_t> OpAddEx(const OpArgs& op_args, string_view key, uint32_t ttl_
 
 OpResult<uint32_t> OpRem(const OpArgs& op_args, string_view key, const ArgSlice& vals,
                          bool journal_rewrite) {
-  auto* es = op_args.shard;
-  auto& db_slice = es->db_slice();
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto find_res = db_slice.FindMutable(op_args.db_cntx, key, OBJ_SET);
   if (!find_res) {
     return find_res.status();
@@ -587,6 +584,7 @@ class Mover {
 };
 
 OpStatus Mover::OpFind(Transaction* t, EngineShard* es) {
+  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
   ShardArgs largs = t->GetShardArgs(es->shard_id());
 
   // In case both src and dest are in the same shard, largs size will be 2.
@@ -594,7 +592,7 @@ OpStatus Mover::OpFind(Transaction* t, EngineShard* es) {
 
   for (auto k : largs) {
     unsigned index = (k == src_) ? 0 : 1;
-    auto res = es->db_slice().FindReadOnly(t->GetDbContext(), k, OBJ_SET);
+    auto res = db_slice.FindReadOnly(t->GetDbContext(), k, OBJ_SET);
     if (res && index == 0) {  // successful src find.
       DCHECK(!res->is_done());
       const CompactObj& val = res.value()->second;
@@ -687,10 +685,10 @@ OpResult<StringVec> OpUnion(const OpArgs& op_args, ShardArgs::Iterator start,
 // Read-only OpDiff op on sets.
 OpResult<StringVec> OpDiff(const OpArgs& op_args, ShardArgs::Iterator start,
                            ShardArgs::Iterator end) {
+  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   DCHECK(start != end);
   DVLOG(1) << "OpDiff from " << *start;
-  EngineShard* es = op_args.shard;
-  auto find_res = es->db_slice().FindReadOnly(op_args.db_cntx, *start, OBJ_SET);
+  auto find_res = db_slice.FindReadOnly(op_args.db_cntx, *start, OBJ_SET);
 
   if (!find_res) {
     return find_res.status();
@@ -711,7 +709,7 @@ OpResult<StringVec> OpDiff(const OpArgs& op_args, ShardArgs::Iterator start,
   DCHECK(!uniques.empty());  // otherwise the key would not exist.
 
   for (++start; start != end; ++start) {
-    auto diff_res = es->db_slice().FindReadOnly(op_args.db_cntx, *start, OBJ_SET);
+    auto diff_res = db_slice.FindReadOnly(op_args.db_cntx, *start, OBJ_SET);
     if (!diff_res) {
       if (diff_res.status() == OpStatus::WRONG_TYPE) {
         return OpStatus::WRONG_TYPE;
@@ -740,6 +738,7 @@ OpResult<StringVec> OpDiff(const OpArgs& op_args, ShardArgs::Iterator start,
 
 // Read-only OpInter op on sets.
 OpResult<StringVec> OpInter(const Transaction* t, EngineShard* es, bool remove_first) {
+  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
   ShardArgs args = t->GetShardArgs(es->shard_id());
   auto it = args.begin();
   if (remove_first) {
@@ -749,7 +748,7 @@ OpResult<StringVec> OpInter(const Transaction* t, EngineShard* es, bool remove_f
 
   StringVec result;
   if (args.Size() == 1 + unsigned(remove_first)) {
-    auto find_res = es->db_slice().FindReadOnly(t->GetDbContext(), *it, OBJ_SET);
+    auto find_res = db_slice.FindReadOnly(t->GetDbContext(), *it, OBJ_SET);
     if (!find_res)
       return find_res.status();
 
@@ -773,7 +772,7 @@ OpResult<StringVec> OpInter(const Transaction* t, EngineShard* es, bool remove_f
   unsigned index = 0;
   for (; it != args.end(); ++it) {
     auto& dest = sets[index++];
-    auto find_res = es->db_slice().FindReadOnly(t->GetDbContext(), *it, OBJ_SET);
+    auto find_res = db_slice.FindReadOnly(t->GetDbContext(), *it, OBJ_SET);
     if (!find_res) {
       if (status == OpStatus::OK || status == OpStatus::KEY_NOTFOUND ||
           find_res.status() != OpStatus::KEY_NOTFOUND) {
@@ -940,7 +939,8 @@ void SIsMember(CmdArgList args, ConnectionContext* cntx) {
   string_view val = ArgS(args, 1);
 
   auto cb = [&](Transaction* t, EngineShard* shard) {
-    auto find_res = shard->db_slice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
+    auto find_res =
+        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
 
     if (find_res) {
       SetType st{find_res.value()->second.RObjPtr(), find_res.value()->second.Encoding()};
@@ -971,7 +971,8 @@ void SMIsMember(CmdArgList args, ConnectionContext* cntx) {
   memberships.reserve(vals.size());
 
   auto cb = [&](Transaction* t, EngineShard* shard) {
-    auto find_res = shard->db_slice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
+    auto find_res =
+        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
     if (find_res) {
       SetType st{find_res.value()->second.RObjPtr(), find_res.value()->second.Encoding()};
       FindInSet(memberships, t->GetDbContext(), st, vals);
@@ -1035,7 +1036,8 @@ void SCard(CmdArgList args, ConnectionContext* cntx) {
   string_view key = ArgS(args, 0);
 
   auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<uint32_t> {
-    auto find_res = shard->db_slice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
+    auto find_res =
+        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
     if (!find_res) {
       return find_res.status();
     }
@@ -1210,7 +1212,8 @@ void SRandMember(CmdArgList args, ConnectionContext* cntx) {
 
   const auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<StringVec> {
     StringVec result;
-    auto find_res = shard->db_slice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
+    auto find_res =
+        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
     if (!find_res) {
       return find_res.status();
     }

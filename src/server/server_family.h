@@ -158,7 +158,7 @@ class ServerFamily {
     return service_;
   }
 
-  void ResetStat();
+  void ResetStat(Tenant* tenant);
 
   Metrics GetMetrics(Tenant* tenant) const;
 

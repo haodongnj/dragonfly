@@ -439,7 +439,7 @@ void ClientPauseCmd(CmdArgList args, vector<facade::Listener*> listeners, Connec
            chrono::steady_clock::now() < end_time;
   };
 
-  if (auto pause_fb_opt = Pause(listeners, cntx->conn(), &cntx->transaction->GetTenant(),
+  if (auto pause_fb_opt = Pause(listeners, &cntx->transaction->GetTenant(), cntx->conn(),
                                 pause_state, std::move(is_pause_in_progress));
       pause_fb_opt) {
     pause_fb_opt->Detach();
@@ -1333,7 +1333,7 @@ void ServerFamily::StatsMC(std::string_view section, facade::ConnectionContext* 
   double utime = dbl_time(ru.ru_utime);
   double systime = dbl_time(ru.ru_stime);
 
-  Metrics m = GetMetrics(&cntx->transaction->GetTenant());
+  Metrics m = GetMetrics(&tenants->GetDefaultTenant());
 
   ADD_LINE(pid, getpid());
   ADD_LINE(uptime, m.uptime);
@@ -1686,7 +1686,7 @@ void ServerFamily::Config(CmdArgList args, ConnectionContext* cntx) {
   }
 
   if (sub_cmd == "RESETSTAT") {
-    ResetStat();
+    ResetStat(&cntx->transaction->GetTenant());
     return cntx->SendOk();
   } else {
     return cntx->SendError(UnknownSubCmd(sub_cmd, "CONFIG"), kSyntaxErrType);
