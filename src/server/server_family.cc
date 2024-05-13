@@ -439,8 +439,8 @@ void ClientPauseCmd(CmdArgList args, vector<facade::Listener*> listeners, Connec
            chrono::steady_clock::now() < end_time;
   };
 
-  if (auto pause_fb_opt =
-          Pause(listeners, cntx->conn(), pause_state, std::move(is_pause_in_progress));
+  if (auto pause_fb_opt = Pause(listeners, cntx->conn(), &cntx->transaction->GetTenant(),
+                                pause_state, std::move(is_pause_in_progress));
       pause_fb_opt) {
     pause_fb_opt->Detach();
     cntx->SendOk();
@@ -606,8 +606,8 @@ optional<ReplicaOfArgs> ReplicaOfArgs::FromCmdArgs(CmdArgList args, ConnectionCo
 
 }  // namespace
 
-std::optional<fb2::Fiber> Pause(std::vector<facade::Listener*> listeners, facade::Connection* conn,
-                                ClientPause pause_state,
+std::optional<fb2::Fiber> Pause(std::vector<facade::Listener*> listeners, Tenant* tenant,
+                                facade::Connection* conn, ClientPause pause_state,
                                 std::function<bool()> is_pause_in_progress) {
   // Track connections and set pause state to be able to wait untill all running transactions read
   // the new pause state. Exlude already paused commands from the busy count. Exlude tracking
@@ -616,7 +616,7 @@ std::optional<fb2::Fiber> Pause(std::vector<facade::Listener*> listeners, facade
   //    command that did not pause on the new state yet we will pause after waking up.
   DispatchTracker tracker{std::move(listeners), conn, true /* ignore paused commands */,
                           true /*ignore blocking*/};
-  shard_set->pool()->AwaitBrief([&tracker, pause_state](unsigned, util::ProactorBase*) {
+  shard_set->pool()->AwaitBrief([&tracker, pause_state, tenant](unsigned, util::ProactorBase*) {
     // Commands don't suspend before checking the pause state, so
     // it's impossible to deadlock on waiting for a command that will be paused.
     tracker.TrackOnThread();
@@ -636,9 +636,9 @@ std::optional<fb2::Fiber> Pause(std::vector<facade::Listener*> listeners, facade
 
   // We should not expire/evict keys while clients are puased.
   shard_set->RunBriefInParallel(
-      [](EngineShard* shard) { shard->db_slice().SetExpireAllowed(false); });
+      [tenant](EngineShard*) { tenant->GetCurrentDbSlice().SetExpireAllowed(false); });
 
-  return fb2::Fiber("client_pause", [is_pause_in_progress, pause_state]() mutable {
+  return fb2::Fiber("client_pause", [is_pause_in_progress, pause_state, tenant]() mutable {
     // On server shutdown we sleep 10ms to make sure all running task finish, therefore 10ms steps
     // ensure this fiber will not left hanging .
     constexpr auto step = 10ms;
@@ -652,7 +652,7 @@ std::optional<fb2::Fiber> Pause(std::vector<facade::Listener*> listeners, facade
         ServerState::tlocal()->SetPauseState(pause_state, false);
       });
       shard_set->RunBriefInParallel(
-          [](EngineShard* shard) { shard->db_slice().SetExpireAllowed(true); });
+          [tenant](EngineShard*) { tenant->GetCurrentDbSlice().SetExpireAllowed(true); });
     }
   });
 }
@@ -1254,7 +1254,7 @@ void ServerFamily::ConfigureMetrics(util::HttpListenerBase* http_base) {
 
   auto cb = [this](const util::http::QueryArgs& args, util::HttpContext* send) {
     StringResponse resp = util::http::MakeStringResponse(boost::beast::http::status::ok);
-    PrintPrometheusMetrics(this->GetMetrics(), &resp);
+    PrintPrometheusMetrics(this->GetMetrics(&tenants->GetDefaultTenant()), &resp);
 
     return send->Invoke(std::move(resp));
   };
@@ -1333,7 +1333,7 @@ void ServerFamily::StatsMC(std::string_view section, facade::ConnectionContext* 
   double utime = dbl_time(ru.ru_utime);
   double systime = dbl_time(ru.ru_stime);
 
-  Metrics m = GetMetrics();
+  Metrics m = GetMetrics(&cntx->transaction->GetTenant());
 
   ADD_LINE(pid, getpid());
   ADD_LINE(uptime, m.uptime);
@@ -1363,7 +1363,7 @@ GenericError ServerFamily::DoSave(bool ignore_state) {
   const CommandId* cid = service().FindCmd("SAVE");
   CHECK_NOTNULL(cid);
   boost::intrusive_ptr<Transaction> trans(new Transaction{cid});
-  trans->InitByArgs(0, {});
+  trans->InitByArgs(&tenants->GetDefaultTenant(), 0, {});
   return DoSave(absl::GetFlag(FLAGS_df_snapshot_format), {}, trans.get(), ignore_state);
 }
 
@@ -1446,7 +1446,7 @@ error_code ServerFamily::Drakarys(Transaction* transaction, DbIndex db_ind) {
 
   transaction->Execute(
       [db_ind](Transaction* t, EngineShard* shard) {
-        shard->db_slice().FlushDb(db_ind);
+        t->GetTenant().GetCurrentDbSlice().FlushDb(db_ind);
         return OpStatus::OK;
       },
       true);
@@ -1464,7 +1464,8 @@ void ServerFamily::DbSize(CmdArgList args, ConnectionContext* cntx) {
 
   shard_set->RunBriefInParallel(
       [&](EngineShard* shard) {
-        auto db_size = shard->db_slice().DbSize(cntx->conn_state.db_index);
+        auto db_size =
+            cntx->transaction->GetTenant().GetCurrentDbSlice().DbSize(cntx->conn_state.db_index);
         num_keys.fetch_add(db_size, memory_order_relaxed);
       },
       [](ShardId) { return true; });
@@ -1795,17 +1796,16 @@ static void MergeDbSliceStats(const DbSlice::Stats& src, Metrics* dest) {
   dest->small_string_bytes += src.small_string_bytes;
 }
 
-void ServerFamily::ResetStat() {
+void ServerFamily::ResetStat(Tenant* tenant) {
   shard_set->pool()->AwaitBrief(
-      [registry = service_.mutable_registry(), this](unsigned index, auto*) {
+      [registry = service_.mutable_registry(), this, tenant](unsigned index, auto*) {
         registry->ResetCallStats(index);
         SinkReplyBuilder::ResetThreadLocalStats();
         auto& stats = tl_facade_stats->conn_stats;
         stats.command_cnt = 0;
         stats.pipelined_cmd_cnt = 0;
 
-        EngineShard* shard = EngineShard::tlocal();
-        shard->db_slice().ResetEvents();
+        tenant->GetCurrentDbSlice().ResetEvents();
         tl_facade_stats->conn_stats.conn_received_cnt = 0;
         tl_facade_stats->conn_stats.pipelined_cmd_cnt = 0;
         tl_facade_stats->conn_stats.command_cnt = 0;
@@ -1822,7 +1822,7 @@ void ServerFamily::ResetStat() {
       });
 }
 
-Metrics ServerFamily::GetMetrics() const {
+Metrics ServerFamily::GetMetrics(Tenant* tenant) const {
   Metrics result;
   util::fb2::Mutex mu;
 
@@ -1853,7 +1853,7 @@ Metrics ServerFamily::GetMetrics() const {
 
     if (shard) {
       result.heap_used_bytes += shard->UsedMemory();
-      MergeDbSliceStats(shard->db_slice().GetStats(), &result);
+      MergeDbSliceStats(tenant->GetCurrentDbSlice().GetStats(), &result);
       result.shard_stats += shard->stats();
 
       if (shard->tiered_storage()) {
@@ -1928,7 +1928,7 @@ void ServerFamily::Info(CmdArgList args, ConnectionContext* cntx) {
     absl::StrAppend(&info, a1, ":", a2, "\r\n");
   };
 
-  Metrics m = GetMetrics();
+  Metrics m = GetMetrics(&cntx->transaction->GetTenant());
   DbStats total;
   for (const auto& db_stats : m.db_stats)
     total += db_stats;

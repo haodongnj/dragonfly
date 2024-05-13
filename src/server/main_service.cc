@@ -51,6 +51,7 @@ extern "C" {
 #include "server/set_family.h"
 #include "server/stream_family.h"
 #include "server/string_family.h"
+#include "server/tenant.h"
 #include "server/transaction.h"
 #include "server/version.h"
 #include "server/zset_family.h"
@@ -133,9 +134,11 @@ constexpr size_t kMaxThreadSize = 1024;
 
 // Unwatch all keys for a connection and unregister from DbSlices.
 // Used by UNWATCH, DICARD and EXEC.
-void UnwatchAllKeys(ConnectionState::ExecInfo* exec_info) {
+void UnwatchAllKeys(Tenant* tenant, ConnectionState::ExecInfo* exec_info) {
   if (!exec_info->watched_keys.empty()) {
-    auto cb = [&](EngineShard* shard) { shard->db_slice().UnregisterConnectionWatches(exec_info); };
+    auto cb = [&](EngineShard* shard) {
+      tenant->GetCurrentDbSlice().UnregisterConnectionWatches(exec_info);
+    };
     shard_set->RunBriefInParallel(std::move(cb));
   }
   exec_info->ClearWatched();
@@ -147,7 +150,7 @@ void MultiCleanup(ConnectionContext* cntx) {
     ServerState::tlocal()->ReturnInterpreter(borrowed);
     exec_info.preborrowed_interpreter = nullptr;
   }
-  UnwatchAllKeys(&exec_info);
+  UnwatchAllKeys(&cntx->transaction->GetTenant(), &exec_info);
   exec_info.Clear();
 }
 
@@ -514,7 +517,7 @@ void Topkeys(const http::QueryArgs& args, HttpContext* send) {
     vector<string> rows(shard_set->size());
 
     shard_set->RunBriefInParallel([&](EngineShard* shard) {
-      for (const auto& db : shard->db_slice().databases()) {
+      for (const auto& db : tenants->GetDefaultTenant().GetCurrentDbSlice().databases()) {
         if (db->top_keys.IsEnabled()) {
           is_enabled = true;
           for (const auto& [key, count] : db->top_keys.GetTopKeys()) {
@@ -1137,7 +1140,7 @@ OpResult<void> OpTrackKeys(const OpArgs& op_args, const facade::Connection::Weak
   DVLOG(2) << "Start tracking keys for client ID: " << conn_ref.GetClientId()
            << " with thread ID: " << conn_ref.Thread();
 
-  DbSlice& db_slice = op_args.tenant->GetCurrentDbSlice();
+  DbSlice& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
 
   // TODO: There is a bug here that we track all arguments instead of tracking only keys.
   for (auto key : args) {
@@ -1221,8 +1224,8 @@ void Service::DispatchCommand(CmdArgList args, facade::ConnectionContext* cntx) 
     DCHECK(dfly_cntx->transaction);
     if (cid->IsTransactional()) {
       dfly_cntx->transaction->MultiSwitchCmd(cid);
-      OpStatus status =
-          dfly_cntx->transaction->InitByArgs(dfly_cntx->conn_state.db_index, args_no_cmd);
+      OpStatus status = dfly_cntx->transaction->InitByArgs(
+          &dfly_cntx->transaction->GetTenant(), dfly_cntx->conn_state.db_index, args_no_cmd);
 
       if (status != OpStatus::OK)
         return cntx->SendError(status);
@@ -1234,7 +1237,8 @@ void Service::DispatchCommand(CmdArgList args, facade::ConnectionContext* cntx) 
       dist_trans.reset(new Transaction{cid});
 
       if (!dist_trans->IsMulti()) {  // Multi command initialize themself based on their mode.
-        if (auto st = dist_trans->InitByArgs(dfly_cntx->conn_state.db_index, args_no_cmd);
+        if (auto st = dist_trans->InitByArgs(&dfly_cntx->transaction->GetTenant(),
+                                             dfly_cntx->conn_state.db_index, args_no_cmd);
             st != OpStatus::OK)
           return cntx->SendError(st);
       }
@@ -1577,10 +1581,10 @@ const CommandId* Service::FindCmd(std::string_view cmd) const {
   return registry_.Find(registry_.RenamedOrOriginal(cmd));
 }
 
-bool Service::IsLocked(DbIndex db_index, std::string_view key) const {
+bool Service::IsLocked(Tenant* tenant, DbIndex db_index, std::string_view key) const {
   ShardId sid = Shard(key, shard_count());
-  bool is_open = pp_.at(sid)->AwaitBrief([db_index, key] {
-    return EngineShard::tlocal()->db_slice().CheckLock(IntentLock::EXCLUSIVE, db_index, key);
+  bool is_open = pp_.at(sid)->AwaitBrief([db_index, key, tenant] {
+    return tenant->GetCurrentDbSlice().CheckLock(IntentLock::EXCLUSIVE, db_index, key);
   });
   return !is_open;
 }
@@ -1652,7 +1656,7 @@ void Service::Watch(CmdArgList args, ConnectionContext* cntx) {
 }
 
 void Service::Unwatch(CmdArgList args, ConnectionContext* cntx) {
-  UnwatchAllKeys(&cntx->conn_state.exec_info);
+  UnwatchAllKeys(&cntx->transaction->GetDefaultTenant(), &cntx->conn_state.exec_info);
   return cntx->SendOk();
 }
 
@@ -2456,7 +2460,7 @@ void Service::Command(CmdArgList args, ConnectionContext* cntx) {
 VarzValue::Map Service::GetVarzStats() {
   VarzValue::Map res;
 
-  Metrics m = server_family_.GetMetrics();
+  Metrics m = server_family_.GetMetrics(&tenants->GetDefaultTenant());
   DbStats db_stats;
   for (const auto& s : m.db_stats) {
     db_stats += s;
@@ -2555,7 +2559,7 @@ void Service::OnClose(facade::ConnectionContext* cntx) {
     DCHECK(!conn_state.subscribe_info);
   }
 
-  UnwatchAllKeys(&conn_state.exec_info);
+  UnwatchAllKeys(&server_cntx->transaction->GetTenant(), &conn_state.exec_info);
 
   DeactivateMonitoring(server_cntx);
 

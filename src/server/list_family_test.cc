@@ -168,7 +168,7 @@ TEST_F(ListFamilyTest, BLPopTimeout) {
   RespExpr resp = Run({"blpop", kKey1, kKey2, kKey3, "0.01"});
   EXPECT_THAT(resp, ArgType(RespExpr::NIL_ARRAY));
   EXPECT_EQ(3, GetDebugInfo().shards_count);
-  ASSERT_FALSE(service_->IsLocked(0, kKey1));
+  ASSERT_FALSE(IsLocked(0, kKey1));
 
   // Under Multi
   resp = Run({"multi"});
@@ -178,7 +178,7 @@ TEST_F(ListFamilyTest, BLPopTimeout) {
   resp = Run({"exec"});
 
   EXPECT_THAT(resp, ArgType(RespExpr::NIL_ARRAY));
-  ASSERT_FALSE(service_->IsLocked(0, kKey1));
+  ASSERT_FALSE(IsLocked(0, kKey1));
   ASSERT_EQ(0, NumWatched());
 }
 

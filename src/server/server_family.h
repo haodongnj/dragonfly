@@ -17,6 +17,7 @@
 #include "server/engine_shard_set.h"
 #include "server/replica.h"
 #include "server/server_state.h"
+#include "server/tenant.h"
 #include "util/fibers/fiberqueue_threadpool.h"
 #include "util/fibers/future.h"
 
@@ -159,7 +160,7 @@ class ServerFamily {
 
   void ResetStat();
 
-  Metrics GetMetrics() const;
+  Metrics GetMetrics(Tenant* tenant) const;
 
   ScriptMgr* script_mgr() {
     return script_mgr_.get();
@@ -336,7 +337,7 @@ class ServerFamily {
 };
 
 // Reusable CLIENT PAUSE implementation that blocks while polling is_pause_in_progress
-std::optional<util::fb2::Fiber> Pause(std::vector<facade::Listener*> listeners,
+std::optional<util::fb2::Fiber> Pause(std::vector<facade::Listener*> listeners, Tenant* tenant,
                                       facade::Connection* conn, ClientPause pause_state,
                                       std::function<bool()> is_pause_in_progress);
 

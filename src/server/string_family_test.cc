@@ -48,7 +48,7 @@ TEST_F(StringFamilyTest, SetGet) {
   EXPECT_EQ(Run({"get", "key"}), "2");
   EXPECT_THAT(Run({"get", "key3"}), ArgType(RespExpr::NIL));
 
-  auto metrics = GetMetrics();
+  auto metrics = GetMetrics(&tenants->GetDefaultTenant());
   EXPECT_EQ(7, metrics.coordinator_stats.tx_normal_cnt);
   EXPECT_EQ(3, metrics.events.hits);
   EXPECT_EQ(1, metrics.events.misses);
@@ -70,7 +70,7 @@ TEST_F(StringFamilyTest, Incr) {
 
   ASSERT_THAT(Run({"incrby", "ne", "0"}), IntArg(0));
   ASSERT_THAT(Run({"decrby", "a", "-9223372036854775808"}), ErrArg("overflow"));
-  auto metrics = GetMetrics();
+  auto metrics = GetMetrics(&tenants->GetDefaultTenant());
   EXPECT_EQ(10, metrics.events.mutations);
   EXPECT_EQ(0, metrics.events.misses);
   EXPECT_EQ(0, metrics.events.hits);
@@ -794,7 +794,7 @@ TEST_F(StringFamilyTest, SetWithHashtagsNoCluster) {
   auto fb = ExpectUsedKeys({"{key}1"});
   EXPECT_EQ(Run({"set", "{key}1", "val1"}), "OK");
   fb.Join();
-  EXPECT_FALSE(service_->IsLocked(0, "{key}1"));
+  EXPECT_FALSE(IsLocked(0, "{key}1"));
 
   fb = ExpectUsedKeys({"{key}2"});
   EXPECT_EQ(Run({"set", "{key}2", "val2"}), "OK");

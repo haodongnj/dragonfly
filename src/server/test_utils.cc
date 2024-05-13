@@ -548,12 +548,7 @@ BaseFamilyTest::TestConnWrapper::GetInvalidationMessage(size_t index) const {
 }
 
 bool BaseFamilyTest::IsLocked(DbIndex db_index, std::string_view key) const {
-  ShardId sid = Shard(key, shard_set->size());
-
-  bool is_open = pp_->at(sid)->AwaitBrief([db_index, key] {
-    return EngineShard::tlocal()->db_slice().CheckLock(IntentLock::EXCLUSIVE, db_index, key);
-  });
-  return !is_open;
+  return service_->IsLocked(tenants->GetDefaultTenant(), db_index, key);
 }
 
 string BaseFamilyTest::GetId() const {
