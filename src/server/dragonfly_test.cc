@@ -575,7 +575,7 @@ TEST_F(DflyEngineTest, Bug496) {
     if (shard == nullptr)
       return;
 
-    auto& db = shard->db_slice();
+    auto& db = tenants->GetDefaultTenant().GetCurrentDbSlice();
 
     int cb_hits = 0;
     uint32_t cb_id =

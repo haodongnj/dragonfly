@@ -78,7 +78,7 @@ void TransactionSuspension::Start() {
 
   transaction_ = new dfly::Transaction{&cid};
 
-  auto st = transaction_->InitByArgs(0, {});
+  auto st = transaction_->InitByArgs(&tenants->GetDefaultTenant(), 0, {});
   CHECK_EQ(st, OpStatus::OK);
 
   transaction_->Execute([](Transaction* t, EngineShard* shard) { return OpStatus::OK; }, false);
@@ -207,7 +207,10 @@ void BaseFamilyTest::ResetService() {
   used_mem_current = 0;
 
   TEST_current_time_ms = absl::GetCurrentTimeNanos() / 1000000;
-  auto cb = [&](EngineShard* s) { s->db_slice().UpdateExpireBase(TEST_current_time_ms - 1000, 0); };
+  auto cb = [&](EngineShard* s) {
+    tenants->GetDefaultTenant().GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000,
+                                                                     0);
+  };
   shard_set->RunBriefInParallel(cb);
 
   const TestInfo* const test_info = UnitTest::GetInstance()->current_test_info();
@@ -241,7 +244,8 @@ void BaseFamilyTest::ResetService() {
           }
 
           LOG(ERROR) << "TxLocks for shard " << es->shard_id();
-          for (const auto& k_v : es->db_slice().GetDBTable(0)->trans_locks) {
+          for (const auto& k_v :
+               tenants->GetDefaultTenant().GetCurrentDbSlice().GetDBTable(0)->trans_locks) {
             LOG(ERROR) << "Key " << k_v.first << " " << k_v.second;
           }
         }
@@ -293,7 +297,7 @@ void BaseFamilyTest::CleanupSnapshots() {
 unsigned BaseFamilyTest::NumLocked() {
   atomic_uint count = 0;
   shard_set->RunBriefInParallel([&](EngineShard* shard) {
-    for (const auto& db : shard->db_slice().databases()) {
+    for (const auto& db : tenants->GetDefaultTenant().GetCurrentDbSlice().databases()) {
       if (db == nullptr) {
         continue;
       }
@@ -548,7 +552,7 @@ BaseFamilyTest::TestConnWrapper::GetInvalidationMessage(size_t index) const {
 }
 
 bool BaseFamilyTest::IsLocked(DbIndex db_index, std::string_view key) const {
-  return service_->IsLocked(tenants->GetDefaultTenant(), db_index, key);
+  return service_->IsLocked(&tenants->GetDefaultTenant(), db_index, key);
 }
 
 string BaseFamilyTest::GetId() const {
@@ -635,7 +639,7 @@ vector<LockFp> BaseFamilyTest::GetLastFps() {
     }
 
     lock_guard lk(mu);
-    for (auto fp : shard->db_slice().TEST_GetLastLockedFps()) {
+    for (auto fp : tenants->GetDefaultTenant().GetCurrentDbSlice().TEST_GetLastLockedFps()) {
       result.push_back(fp);
     }
   };
