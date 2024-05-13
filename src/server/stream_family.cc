@@ -1116,7 +1116,6 @@ struct CreateOpts {
 };
 
 OpStatus OpCreate(const OpArgs& op_args, string_view key, const CreateOpts& opts) {
-  auto* shard = op_args.shard;
   auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_STREAM);
   int64_t entries_read = SCG_INVALID_ENTRIES_READ;
@@ -1453,7 +1452,6 @@ OpStatus OpSetId(const OpArgs& op_args, string_view key, string_view gname, stri
 }
 
 OpStatus OpSetId2(const OpArgs& op_args, string_view key, const streamID& sid) {
-  auto* shard = op_args.shard;
   auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
@@ -1492,7 +1490,6 @@ OpStatus OpSetId2(const OpArgs& op_args, string_view key, const streamID& sid) {
 }
 
 OpResult<uint32_t> OpDel(const OpArgs& op_args, string_view key, absl::Span<streamID> ids) {
-  auto* shard = op_args.shard;
   auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
@@ -1922,7 +1919,6 @@ void XGroupHelp(CmdArgList args, ConnectionContext* cntx) {
 }
 
 OpResult<int64_t> OpTrim(const OpArgs& op_args, const AddTrimOpts& opts) {
-  auto* shard = op_args.shard;
   auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, opts.key, OBJ_STREAM);
   if (!res_it) {

@@ -6,6 +6,8 @@
 
 #include <absl/container/node_hash_map.h>
 
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "server/db_slice.h"
@@ -15,15 +17,14 @@ namespace dfly {
 
 class Tenant {
  public:
-  explicit Tenant(ShardId shard_count);
+  explicit Tenant();
 
   DbSlice& GetCurrentDbSlice();
 
   DbSlice& GetDbSlice(ShardId sid);
-  const DbSlice& GetDbSlice(ShardId sid) const;
 
  private:
-  std::vector<DbSlice> shard_db_slices_;
+  std::vector<std::unique_ptr<DbSlice>> shard_db_slices_;
 };
 
 class Tenants {
@@ -32,13 +33,8 @@ class Tenants {
 
   Tenant& GetDefaultTenant();
   Tenant& GetOrInsert(std::string_view tenant);
-  const Tenant& Get(std::string_view tenant) const;
 
  private:
-  // TODO: when initializing:
-  // db_slice_(pb->GetPoolIndex(), GetFlag(FLAGS_cache_mode), this) {
-  // db_slice_.UpdateExpireBase(absl::GetCurrentTimeNanos() / 1000000, 0);
-
   absl::node_hash_map<std::string, Tenant> tenants_;
   Tenant* default_tenant_ = nullptr;
 };
