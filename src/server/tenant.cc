@@ -10,7 +10,7 @@ namespace dfly {
 
 using namespace std;
 
-Tenants* tenants = new Tenants();
+Tenants* tenants = nullptr;
 
 Tenant::Tenant() {
   shard_db_slices_.resize(shard_set->size());

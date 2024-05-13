@@ -865,6 +865,7 @@ void Service::Init(util::AcceptServer* acceptor, std::vector<facade::Listener*> 
   });
 
   shard_set->Init(shard_num, !opts.disable_time_update);
+  tenants = new Tenants();
   const auto tcp_disabled = GetFlag(FLAGS_port) == 0u;
   // We assume that listeners.front() is the main_listener
   // see dfly_main RunEngine
