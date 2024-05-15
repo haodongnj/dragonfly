@@ -12,13 +12,13 @@
 
 #include <mimalloc.h>
 
-#include "base/io_buf.h"
 #include "base/logging.h"
 #include "core/allocation_tracker.h"
 #include "facade/cmd_arg_parser.h"
 #include "facade/dragonfly_connection.h"
 #include "facade/dragonfly_listener.h"
 #include "facade/error.h"
+#include "io/io_buf.h"
 #include "server/engine_shard_set.h"
 #include "server/main_service.h"
 #include "server/server_family.h"
@@ -155,6 +155,14 @@ void MemoryCmd::Run(CmdArgList args) {
     return Track(args);
   }
 
+  if (sub_cmd == "DEFRAGMENT") {
+    shard_set->pool()->DispatchOnAll([this](util::ProactorBase*) {
+      if (auto* shard = EngineShard::tlocal(); shard)
+        shard->ForceDefrag();
+    });
+    return cntx_->SendSimpleString("OK");
+  }
+
   string err = UnknownSubCmd(sub_cmd, "MEMORY");
   return cntx_->SendError(err, kSyntaxErrType);
 }
@@ -165,11 +173,11 @@ struct ConnectionMemoryUsage {
   size_t connection_count = 0;
   size_t connection_size = 0;
   size_t pipelined_bytes = 0;
-  base::IoBuf::MemoryUsage connections_memory;
+  io::IoBuf::MemoryUsage connections_memory;
 
   size_t replication_connection_count = 0;
   size_t replication_connection_size = 0;
-  base::IoBuf::MemoryUsage replication_memory;
+  io::IoBuf::MemoryUsage replication_memory;
 };
 
 ConnectionMemoryUsage GetConnectionMemoryUsage(ServerFamily* server) {

@@ -37,8 +37,6 @@ ABSL_FLAG(string, tiered_prefix, "",
           " associated with tiered storage. Stronly advised to use "
           "high performance NVME ssd disks for this.");
 
-ABSL_FLAG(string, tiered_prefix_v2, "", "tiered_prefix v2");
-
 ABSL_FLAG(dfly::MemoryBytesFlag, tiered_max_file_size, dfly::MemoryBytesFlag{},
           "Limit on maximum file size that is used by the database for tiered storage. "
           "0 - means the program will automatically determine its maximum file size. "
@@ -54,7 +52,7 @@ ABSL_FLAG(uint32_t, hz, 100,
 ABSL_FLAG(bool, cache_mode, false,
           "If true, the backend behaves like a cache, "
           "by evicting entries when getting close to maxmemory limit");
-// memory defragmented related flags
+
 ABSL_FLAG(float, mem_defrag_threshold, 0.7,
           "Minimum percentage of used memory relative to maxmemory cap before running "
           "defragmentation");
@@ -71,6 +69,9 @@ ABSL_FLAG(string, shard_round_robin_prefix, "",
           "based on their value but instead via round-robin. Use cautiously! This can efficiently "
           "support up to a few hundreds of prefixes. Note: prefix is looked inside hash tags when "
           "cluster mode is enabled.");
+
+ABSL_FLAG(uint32_t, mem_defrag_check_sec_interval, 10,
+          "Number of seconds between every defragmentation necessity check");
 
 namespace dfly {
 
@@ -225,7 +226,6 @@ EngineShard::Stats& EngineShard::Stats::operator+=(const EngineShard::Stats& o) 
 
 void EngineShard::DefragTaskState::UpdateScanState(uint64_t cursor_val) {
   cursor = cursor_val;
-  underutilized_found = false;
   // Once we're done with a db, jump to the next
   if (cursor == kCursorDoneState) {
     dbid++;
@@ -234,7 +234,6 @@ void EngineShard::DefragTaskState::UpdateScanState(uint64_t cursor_val) {
 
 void EngineShard::DefragTaskState::ResetScanState() {
   dbid = cursor = 0u;
-  underutilized_found = false;
 }
 
 // This function checks 3 things:
@@ -244,8 +243,9 @@ void EngineShard::DefragTaskState::ResetScanState() {
 // 3. in case the above is OK, make sure that we have a "gap" between usage and commited memory
 // (control by mem_defrag_waste_threshold flag)
 bool EngineShard::DefragTaskState::CheckRequired() {
-  if (cursor > kCursorDoneState || underutilized_found) {
-    VLOG(2) << "cursor: " << cursor << " and underutilized_found " << underutilized_found;
+  if (is_force_defrag || cursor > kCursorDoneState) {
+    is_force_defrag = false;
+    VLOG(2) << "cursor: " << cursor << " and is_force_defrag " << is_force_defrag;
     return true;
   }
 
@@ -254,18 +254,33 @@ bool EngineShard::DefragTaskState::CheckRequired() {
     return false;
   }
 
-  const std::size_t threshold_mem = memory_per_shard * GetFlag(FLAGS_mem_defrag_threshold);
-  const double waste_threshold = GetFlag(FLAGS_mem_defrag_waste_threshold);
+  const std::size_t global_threshold = max_memory_limit * GetFlag(FLAGS_mem_defrag_threshold);
+  if (global_threshold > rss_mem_current.load(memory_order_relaxed)) {
+    return false;
+  }
+
+  const auto now = time(nullptr);
+  const auto seconds_from_prev_check = now - last_check_time;
+  const auto mem_defrag_interval = GetFlag(FLAGS_mem_defrag_check_sec_interval);
+
+  if (seconds_from_prev_check < mem_defrag_interval) {
+    return false;
+  }
+  last_check_time = now;
 
   ShardMemUsage usage = ReadShardMemUsage(GetFlag(FLAGS_mem_defrag_page_utilization_threshold));
 
-  if (threshold_mem < usage.commited &&
-      usage.wasted_mem > (uint64_t(usage.commited * waste_threshold))) {
+  const double waste_threshold = GetFlag(FLAGS_mem_defrag_waste_threshold);
+  if (usage.wasted_mem > (uint64_t(usage.commited * waste_threshold))) {
     VLOG(1) << "memory issue found for memory " << usage;
-    underutilized_found = true;
+    return true;
   }
 
   return false;
+}
+
+void EngineShard::ForceDefrag() {
+  defrag_state_.is_force_defrag = true;
 }
 
 bool EngineShard::DoDefrag() {
@@ -407,7 +422,7 @@ void EngineShard::InitThreadLocal(ProactorBase* pb, bool update_db_time, size_t 
   CompactObj::InitThreadLocal(shard_->memory_resource());
   SmallString::InitThreadLocal(data_heap);
 
-  if (string backing_prefix = GetFlag(FLAGS_tiered_prefix_v2); !backing_prefix.empty()) {
+  if (string backing_prefix = GetFlag(FLAGS_tiered_prefix); !backing_prefix.empty()) {
     LOG_IF(FATAL, pb->GetKind() != ProactorBase::IOURING)
         << "Only ioring based backing storage is supported. Exiting...";
 
@@ -593,6 +608,8 @@ void EngineShard::Heartbeat() {
   }
 
   ssize_t eviction_redline = (max_memory_limit * kRedLimitFactor) / shard_set->size();
+  size_t tiering_redline =
+      (max_memory_limit * GetFlag(FLAGS_tiered_offload_threshold)) / shard_set->size();
 
   DbContext db_cntx;
   db_cntx.time_now_ms = GetCurrentTimeMs();
@@ -615,6 +632,10 @@ void EngineShard::Heartbeat() {
     // if our budget is below the limit
     if (db_slice.memory_budget() < eviction_redline) {
       db_slice.FreeMemWithEvictionStep(i, eviction_redline - db_slice.memory_budget());
+    }
+
+    if (tiered_storage_ && UsedMemory() > tiering_redline) {
+      tiered_storage_->RunOffloading(i);
     }
   }
 

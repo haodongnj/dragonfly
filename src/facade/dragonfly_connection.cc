@@ -93,7 +93,7 @@ bool MatchHttp11Line(string_view line) {
          absl::EndsWith(line, "HTTP/1.1");
 }
 
-void UpdateIoBufCapacity(const base::IoBuf& io_buf, ConnectionStats* stats,
+void UpdateIoBufCapacity(const io::IoBuf& io_buf, ConnectionStats* stats,
                          absl::FunctionRef<void()> f) {
   const size_t prev_capacity = io_buf.Capacity();
   f();
@@ -799,6 +799,11 @@ bool Connection::IsPrivileged() const {
 
 bool Connection::IsMain() const {
   return static_cast<Listener*>(listener())->IsMainInterface();
+}
+
+void Connection::SetName(std::string name) {
+  util::ThisFiber::SetName(absl::StrCat("DflyConnection_", name));
+  name_ = std::move(name);
 }
 
 io::Result<bool> Connection::CheckForHttpProto(FiberSocketBase* peer) {

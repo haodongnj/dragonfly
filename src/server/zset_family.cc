@@ -1713,6 +1713,48 @@ OpResult<StringVec> OpScan(const OpArgs& op_args, std::string_view key, uint64_t
   return res;
 }
 
+OpResult<ScoredArray> OpRandMember(int count, const ZSetFamily::RangeParams& params,
+                                   const OpArgs& op_args, string_view key) {
+  auto it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  if (!it)
+    return it.status();
+
+  // Action::RANGE is a read-only operation, but requires const_cast
+  PrimeValue& pv = const_cast<PrimeValue&>(it.value()->second);
+
+  const std::size_t size = pv.Size();
+  const std::size_t picks_count =
+      count >= 0 ? std::min(static_cast<std::size_t>(count), size) : std::abs(count);
+
+  ScoredArray result{picks_count};
+  std::unique_ptr<PicksGenerator> generator =
+      count >= 0 ? static_cast<std::unique_ptr<PicksGenerator>>(
+                       std::make_unique<UniquePicksGenerator>(picks_count, size))
+                 : std::make_unique<NonUniquePicksGenerator>(size);
+
+  if (picks_count * static_cast<std::uint64_t>(std::log2(size)) < size) {
+    for (std::size_t i = 0; i < picks_count; i++) {
+      const std::size_t picked_index = generator->Generate();
+
+      IntervalVisitor iv{Action::RANGE, params, &pv};
+      iv(ZSetFamily::IndexInterval{picked_index, picked_index});
+
+      result[i] = iv.PopResult().front();
+    }
+  } else {
+    IntervalVisitor iv{Action::RANGE, params, &pv};
+    iv(ZSetFamily::IndexInterval{0, -1});
+
+    ScoredArray all_elements = iv.PopResult();
+
+    for (std::size_t i = 0; i < picks_count; i++) {
+      result[i] = all_elements[generator->Generate()];
+    }
+  }
+
+  return result;
+}
+
 void ZAddGeneric(string_view key, const ZParams& zparams, ScoredMemberSpan memb_sp,
                  ConnectionContext* cntx) {
   auto cb = [&](Transaction* t, EngineShard* shard) {
@@ -2334,16 +2376,14 @@ void ZSetFamily::ZRandMember(CmdArgList args, ConnectionContext* cntx) {
   if (args.size() > 3)
     return cntx->SendError(WrongNumArgsError("ZRANDMEMBER"));
 
-  ZRangeSpec range_spec;
-  range_spec.interval = IndexInterval(0, -1);
-
   CmdArgParser parser{args};
   string_view key = parser.Next();
 
   bool is_count = parser.HasNext();
   int count = is_count ? parser.Next<int>() : 1;
 
-  range_spec.params.with_scores = static_cast<bool>(parser.Check("WITHSCORES").IgnoreCase());
+  ZSetFamily::RangeParams params;
+  params.with_scores = static_cast<bool>(parser.Check("WITHSCORES").IgnoreCase());
 
   if (parser.HasNext())
     return cntx->SendError(absl::StrCat("Unsupported option:", string_view(parser.Next())));
@@ -2351,26 +2391,17 @@ void ZSetFamily::ZRandMember(CmdArgList args, ConnectionContext* cntx) {
   if (auto err = parser.Error(); err)
     return cntx->SendError(err->MakeReply());
 
-  bool sign = count < 0;
-  range_spec.params.limit = std::abs(count);
-
   const auto cb = [&](Transaction* t, EngineShard* shard) {
-    return OpRange(range_spec, t->GetOpArgs(shard), key);
+    return OpRandMember(count, params, t->GetOpArgs(shard), key);
   };
 
   OpResult<ScoredArray> result = cntx->transaction->ScheduleSingleHopT(cb);
   auto* rb = static_cast<RedisReplyBuilder*>(cntx->reply_builder());
   if (result) {
-    if (sign && !result->empty()) {
-      for (auto i = result->size(); i < range_spec.params.limit; ++i) {
-        // we can return duplicate elements, so first is OK
-        result->push_back(result->front());
-      }
-    }
-    rb->SendScoredArray(result.value(), range_spec.params.with_scores);
+    rb->SendScoredArray(result.value(), params.with_scores);
   } else if (result.status() == OpStatus::KEY_NOTFOUND) {
     if (is_count) {
-      rb->SendScoredArray(ScoredArray(), range_spec.params.with_scores);
+      rb->SendScoredArray(ScoredArray(), params.with_scores);
     } else {
       rb->SendNull();
     }
