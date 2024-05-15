@@ -104,7 +104,9 @@ class BaseFamilyTest::TestConnWrapper {
   const facade::Connection::InvalidationMessage& GetInvalidationMessage(size_t index) const;
 
   ConnectionContext* cmd_cntx() {
-    return static_cast<ConnectionContext*>(dummy_conn_->cntx());
+    auto cntx = static_cast<ConnectionContext*>(dummy_conn_->cntx());
+    cntx->tenant = &tenants->GetDefaultTenant();
+    return cntx;
   }
 
   StringVec SplitLines() const {
@@ -207,9 +209,9 @@ void BaseFamilyTest::ResetService() {
   used_mem_current = 0;
 
   TEST_current_time_ms = absl::GetCurrentTimeNanos() / 1000000;
+  auto default_tenant = &tenants->GetDefaultTenant();
   auto cb = [&](EngineShard* s) {
-    tenants->GetDefaultTenant().GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000,
-                                                                     0);
+    default_tenant->GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000, 0);
   };
   shard_set->RunBriefInParallel(cb);
 
@@ -296,8 +298,9 @@ void BaseFamilyTest::CleanupSnapshots() {
 
 unsigned BaseFamilyTest::NumLocked() {
   atomic_uint count = 0;
+  auto default_tenant = &tenants->GetDefaultTenant();
   shard_set->RunBriefInParallel([&](EngineShard* shard) {
-    for (const auto& db : tenants->GetDefaultTenant().GetCurrentDbSlice().databases()) {
+    for (const auto& db : default_tenant->GetCurrentDbSlice().databases()) {
       if (db == nullptr) {
         continue;
       }

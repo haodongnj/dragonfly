@@ -1816,7 +1816,7 @@ Transaction::MultiMode DetermineMultiMode(ScriptMgr::ScriptParams params) {
 optional<bool> StartMultiEval(DbIndex dbid, CmdArgList keys, ScriptMgr::ScriptParams params,
                               ConnectionContext* cntx) {
   Transaction* trans = cntx->transaction;
-  Tenant* tenant = &trans->GetTenant();
+  Tenant* tenant = cntx->tenant;
   Transaction::MultiMode script_mode = DetermineMultiMode(params);
   Transaction::MultiMode multi_mode = trans->GetMultiMode();
   // Check if eval is already part of a running multi transaction
@@ -2110,15 +2110,17 @@ CmdArgVec CollectAllKeys(ConnectionState::ExecInfo* exec_info) {
 }
 
 // Return true if transaction was scheduled, false if scheduling was not required.
-void StartMultiExec(DbIndex dbid, Transaction* trans, ConnectionState::ExecInfo* exec_info,
+void StartMultiExec(ConnectionContext* cntx, ConnectionState::ExecInfo* exec_info,
                     Transaction::MultiMode multi_mode) {
+  auto trans = cntx->transaction;
+  auto dbid = cntx->db_index();
   switch (multi_mode) {
     case Transaction::GLOBAL:
-      trans->StartMultiGlobal(&trans->GetTenant(), dbid);
+      trans->StartMultiGlobal(cntx->tenant, dbid);
       break;
     case Transaction::LOCK_AHEAD: {
       auto vec = CollectAllKeys(exec_info);
-      trans->StartMultiLockedAhead(&trans->GetTenant(), dbid, absl::MakeSpan(vec));
+      trans->StartMultiLockedAhead(cntx->tenant, dbid, absl::MakeSpan(vec));
     } break;
     case Transaction::NON_ATOMIC:
       trans->StartMultiNonAtomic();
@@ -2168,7 +2170,7 @@ void Service::Exec(CmdArgList args, ConnectionContext* cntx) {
 
   bool scheduled = false;
   if (multi_mode != Transaction::NOT_DETERMINED) {
-    StartMultiExec(cntx->db_index(), cntx->transaction, &exec_info, multi_mode);
+    StartMultiExec(cntx, &exec_info, multi_mode);
     scheduled = true;
   }
 

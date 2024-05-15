@@ -527,6 +527,7 @@ void Transaction::MultiUpdateWithParent(const Transaction* parent) {
   txid_ = parent->txid_;
   time_now_ms_ = parent->time_now_ms_;
   unique_slot_checker_ = parent->unique_slot_checker_;
+  tenant_ = parent->tenant_;
 }
 
 void Transaction::MultiBecomeSquasher() {
