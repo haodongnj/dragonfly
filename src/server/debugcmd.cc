@@ -847,9 +847,8 @@ void DebugCmd::Watched() {
   vector<string> watched_keys;
   vector<string> awaked_trans;
 
-  auto tenant = &tenants->GetDefaultTenant();
   auto cb = [&](EngineShard* shard) {
-    auto* bc = tenant->GetBlockingController(shard->shard_id());
+    auto* bc = cntx_->tenant->GetBlockingController(shard->shard_id());
     if (bc) {
       auto keys = bc->GetWatchedKeys(cntx_->db_index());
 

@@ -1715,7 +1715,8 @@ OpResult<StringVec> OpScan(const OpArgs& op_args, std::string_view key, uint64_t
 
 OpResult<ScoredArray> OpRandMember(int count, const ZSetFamily::RangeParams& params,
                                    const OpArgs& op_args, string_view key) {
-  auto it = op_args.shard->db_slice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
+  auto it =
+      op_args.db_cntx.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key, OBJ_ZSET);
   if (!it)
     return it.status();
 

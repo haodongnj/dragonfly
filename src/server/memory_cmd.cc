@@ -236,7 +236,7 @@ void PushMemoryUsageStats(const base::IoBuf::MemoryUsage& mem, string_view prefi
 void MemoryCmd::Stats() {
   vector<pair<string, size_t>> stats;
   stats.reserve(25);
-  auto server_metrics = owner_->GetMetrics(&tenants->GetDefaultTenant());
+  auto server_metrics = owner_->GetMetrics(cntx_->tenant);
 
   // RSS
   stats.push_back({"rss_bytes", rss_mem_current.load(memory_order_relaxed)});

@@ -359,8 +359,7 @@ uint32_t EngineShard::DefragTask() {
   constexpr uint32_t kRunAtLowPriority = 0u;
 
   if (defrag_state_.CheckRequired()) {
-    VLOG(2) << shard_id_ << ": need to run defrag memory cursor state: " << defrag_state_.cursor
-            << ", underutilzation found: " << defrag_state_.underutilized_found;
+    VLOG(2) << shard_id_ << ": need to run defrag memory cursor state: " << defrag_state_.cursor;
     if (DoDefrag()) {
       // we didn't finish the scan
       return util::ProactorBase::kOnIdleMaxLevel;
