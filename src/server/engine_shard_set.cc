@@ -631,11 +631,12 @@ void EngineShard::RunPeriodic(std::chrono::milliseconds period_ms) {
   int64_t last_stats_time = time(nullptr);
 
   while (true) {
-    Heartbeat();
     if (fiber_periodic_done_.WaitFor(period_ms)) {
       VLOG(2) << "finished running engine shard periodic task";
       return;
     }
+
+    Heartbeat();
 
     if (runs_global_periodic) {
       ++global_count;

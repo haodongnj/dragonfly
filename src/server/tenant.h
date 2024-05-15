@@ -36,7 +36,10 @@ class Tenants {
  public:
   Tenants();
 
-  Tenant& GetDefaultTenant();
+  void Init();
+  void Reset();
+
+  Tenant& GetDefaultTenant() const;  // No locks
   Tenant& GetOrInsert(std::string_view tenant);
 
  private:

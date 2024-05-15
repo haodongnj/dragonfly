@@ -48,13 +48,21 @@ BlockingController* Tenant::GetBlockingController(ShardId sid) {
 Tenants::Tenants() {
 }
 
-Tenant& Tenants::GetDefaultTenant() {
+void Tenants::Reset() {
   std::lock_guard guard(mu_);
-
-  if (default_tenant_ == nullptr) {
-    default_tenant_ = &tenants_[""];
+  for (auto& tenant : tenants_) {
+    shard_set->RunBriefInParallel([&](EngineShard* es) {
+      tenant.second.GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000, 0);
+    });
   }
+}
 
+void Tenants::Init() {
+  CHECK(default_tenant_ == nullptr);
+  default_tenant_ = &GetOrInsert("");
+}
+
+Tenant& Tenants::GetDefaultTenant() const {
   return *default_tenant_;
 }
 

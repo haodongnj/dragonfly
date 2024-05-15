@@ -214,6 +214,7 @@ void BaseFamilyTest::ResetService() {
     default_tenant->GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000, 0);
   };
   shard_set->RunBriefInParallel(cb);
+  tenants->Reset();
 
   const TestInfo* const test_info = UnitTest::GetInstance()->current_test_info();
   LOG(INFO) << "Starting " << test_info->name();
@@ -379,6 +380,7 @@ RespExpr BaseFamilyTest::Run(std::string_view id, ArgSlice slice) {
   CmdArgVec args = conn_wrapper->Args(slice);
 
   auto* context = conn_wrapper->cmd_cntx();
+  context->tenant = &tenants->GetDefaultTenant();
 
   DCHECK(context->transaction == nullptr) << id;
 

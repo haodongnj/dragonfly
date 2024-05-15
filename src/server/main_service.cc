@@ -809,6 +809,7 @@ Service::Service(ProactorPool* pp)
 #endif
 
   shard_set = new EngineShardSet(pp);
+  tenants = new Tenants();
 
   // We support less than 1024 threads and we support less than 1024 shards.
   // For example, Scan uses 10 bits in cursor to encode shard id it currently traverses.
@@ -864,8 +865,8 @@ void Service::Init(util::AcceptServer* acceptor, std::vector<facade::Listener*> 
     ServerState::Init(index, shard_num, &user_registry_);
   });
 
-  tenants = new Tenants();
   shard_set->Init(shard_num, !opts.disable_time_update);
+  tenants->Init();
   const auto tcp_disabled = GetFlag(FLAGS_port) == 0u;
   // We assume that listeners.front() is the main_listener
   // see dfly_main RunEngine
