@@ -46,6 +46,7 @@ class UserRegistry {
     uint32_t acl_categories{0};
     std::vector<uint64_t> acl_commands;
     AclKeys keys;
+    std::string tenant;
   };
 
   // Acquires a read lock

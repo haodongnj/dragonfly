@@ -123,6 +123,13 @@ std::optional<std::string> MaybeParsePassword(std::string_view command, bool has
   return {};
 }
 
+std::optional<std::string> MaybeParseTenant(std::string_view command) {
+  if (absl::StartsWith(command, "TENANT:")) {
+    return std::string(command.substr(7));
+  }
+  return {};
+}
+
 std::optional<bool> MaybeParseStatus(std::string_view command) {
   if (command == "ON") {
     return true;
@@ -273,6 +280,11 @@ std::variant<User::UpdateRequest, ErrorReply> ParseAclSetUser(T args,
         return ErrorReply("Multiple ON/OFF are not allowed");
       }
       req.is_active = *status;
+      continue;
+    }
+
+    if (auto tenant = MaybeParseTenant(command); tenant) {
+      req.tenant = tenant;
       continue;
     }
 

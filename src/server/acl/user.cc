@@ -56,6 +56,10 @@ void User::Update(UpdateRequest&& req) {
   if (req.is_active) {
     SetIsActive(*req.is_active);
   }
+
+  if (req.tenant) {
+    SetTenant(*req.tenant);
+  }
 }
 
 void User::SetPasswordHash(std::string_view password, bool is_hashed) {
@@ -68,6 +72,14 @@ void User::SetPasswordHash(std::string_view password, bool is_hashed) {
     return;
   }
   password_hash_ = StringSHA256(password);
+}
+
+void User::SetTenant(const std::string& tenant) {
+  tenant_ = tenant;
+}
+
+std::string User::Tenant() const {
+  return tenant_;
 }
 
 bool User::HasPassword(std::string_view password) const {

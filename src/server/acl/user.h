@@ -48,6 +48,8 @@ class User final {
     std::vector<UpdateKey> keys;
     bool reset_all_keys{false};
     bool allow_all_keys{false};
+
+    std::optional<std::string> tenant{};
   };
 
   /* Used for default user
@@ -80,6 +82,8 @@ class User final {
 
   const AclKeys& Keys() const;
 
+  std::string Tenant() const;
+
  private:
   // For ACL categories
   void SetAclCategories(uint32_t cat);
@@ -97,6 +101,7 @@ class User final {
 
   // For ACL key globs
   void SetKeyGlobs(std::vector<UpdateKey> keys);
+  void SetTenant(const std::string& tenant);
 
   // when optional is empty, the special `nopass` password is implied
   // password hashed with xx64
@@ -113,6 +118,8 @@ class User final {
 
   // if the user is on/off
   bool is_active_{false};
+
+  std::string tenant_;
 };
 
 }  // namespace dfly::acl

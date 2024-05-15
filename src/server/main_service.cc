@@ -1558,7 +1558,7 @@ bool RequirePrivilegedAuth() {
 facade::ConnectionContext* Service::CreateContext(util::FiberSocketBase* peer,
                                                   facade::Connection* owner) {
   ConnectionContext* res = new ConnectionContext{peer, owner};
-  res->tenant = &tenants->GetOrInsert("TODO_TENANT");
+  res->tenant = &tenants->GetOrInsert("");
 
   if (peer->IsUDS()) {
     res->req_auth = false;

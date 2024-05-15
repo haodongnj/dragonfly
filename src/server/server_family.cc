@@ -1561,6 +1561,7 @@ void ServerFamily::Auth(CmdArgList args, ConnectionContext* cntx) {
       cntx->acl_categories = cred.acl_categories;
       cntx->acl_commands = cred.acl_commands;
       cntx->keys = std::move(cred.keys);
+      cntx->tenant = &tenants->GetOrInsert(cred.tenant);
       cntx->authenticated = true;
       return cntx->SendOk();
     }
