@@ -286,7 +286,7 @@ void Renamer::Find(Transaction* t) {
     FindResult* res = (shard->shard_id() == src_sid_) ? &src_res_ : &dest_res_;
 
     res->key = args.Front();
-    auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+    auto& db_slice = t->GetCurrentDbSlice();
     auto [it, exp_it] = db_slice.FindReadOnly(t->GetDbContext(), res->key);
 
     res->found = IsValid(it);
@@ -325,7 +325,7 @@ void Renamer::Finalize(Transaction* t, bool skip_exist_dest) {
 
 OpStatus Renamer::MoveSrc(Transaction* t, EngineShard* es) {
   if (es->shard_id() == src_sid_) {  // Handle source key.
-    auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+    auto& db_slice = t->GetCurrentDbSlice();
     auto res = db_slice.FindMutable(t->GetDbContext(), src_res_.key);
     auto& it = res.it;
     CHECK(IsValid(it));
@@ -353,7 +353,7 @@ OpStatus Renamer::MoveSrc(Transaction* t, EngineShard* es) {
 
 OpStatus Renamer::UpdateDest(Transaction* t, EngineShard* es) {
   if (es->shard_id() != src_sid_) {
-    auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+    auto& db_slice = t->GetCurrentDbSlice();
     string_view dest_key = dest_res_.key;
     auto res = db_slice.FindMutable(t->GetDbContext(), dest_key);
     auto& dest_it = res.it;
@@ -541,7 +541,7 @@ uint64_t ScanGeneric(uint64_t cursor, const ScanOpts& scan_opts, StringVec* keys
   }
 
   cursor >>= 10;
-  DbContext db_cntx{.tenant = &cntx->transaction->GetTenant(),
+  DbContext db_cntx{.tenant = cntx->tenant,
                     .db_index = cntx->conn_state.db_index,
                     .time_now_ms = GetCurrentTimeMs()};
 
@@ -601,7 +601,7 @@ OpStatus OpExpire(const OpArgs& op_args, string_view key, const DbSlice::ExpireP
 // returns -2 if the key was not found, -3 if the field was not found,
 // -1 if ttl on the field was not found.
 OpResult<long> OpFieldTtl(Transaction* t, EngineShard* shard, string_view key, string_view field) {
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   const DbContext& db_cntx = t->GetDbContext();
   auto [it, expire_it] = db_slice.FindReadOnly(db_cntx, key);
   if (!IsValid(it))
@@ -1278,7 +1278,7 @@ void GenericFamily::Select(CmdArgList args, ConnectionContext* cntx) {
   }
   cntx->conn_state.db_index = index;
   auto cb = [cntx, index](EngineShard* shard) {
-    auto& db_slice = cntx->transaction->GetTenant().GetCurrentDbSlice();
+    auto& db_slice = cntx->tenant->GetCurrentDbSlice();
     db_slice.ActivateDb(index);
     return OpStatus::OK;
   };
@@ -1308,7 +1308,7 @@ void GenericFamily::Type(CmdArgList args, ConnectionContext* cntx) {
   std::string_view key = ArgS(args, 0);
 
   auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<int> {
-    auto& db_slice = cntx->transaction->GetTenant().GetCurrentDbSlice();
+    auto& db_slice = cntx->tenant->GetCurrentDbSlice();
     auto it = db_slice.FindReadOnly(t->GetDbContext(), key).it;
     if (!it.is_done()) {
       return it->second.ObjType();
@@ -1402,7 +1402,7 @@ void GenericFamily::Scan(CmdArgList args, ConnectionContext* cntx) {
 }
 
 OpResult<uint64_t> GenericFamily::OpTtl(Transaction* t, EngineShard* shard, string_view key) {
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   auto [it, expire_it] = db_slice.FindReadOnly(t->GetDbContext(), key);
   if (!IsValid(it))
     return OpStatus::KEY_NOTFOUND;
@@ -1534,8 +1534,7 @@ void GenericFamily::RandomKey(CmdArgList args, ConnectionContext* cntx) {
 
   absl::BitGen bitgen;
   atomic_size_t candidates_counter{0};
-  DbContext db_cntx{.tenant = &cntx->transaction->GetTenant(),
-                    .db_index = cntx->conn_state.db_index};
+  DbContext db_cntx{.tenant = cntx->tenant, .db_index = cntx->conn_state.db_index};
   ScanOpts scan_opts;
   scan_opts.limit = 3;  // number of entries per shard
   std::vector<StringVec> candidates_collection(shard_set->size());
@@ -1543,7 +1542,7 @@ void GenericFamily::RandomKey(CmdArgList args, ConnectionContext* cntx) {
   shard_set->RunBriefInParallel(
       [&](EngineShard* shard) {
         auto [prime_table, expire_table] =
-            cntx->transaction->GetTenant().GetCurrentDbSlice().GetTables(db_cntx.db_index);
+            cntx->tenant->GetCurrentDbSlice().GetTables(db_cntx.db_index);
         if (prime_table->size() == 0) {
           return;
         }

@@ -159,7 +159,7 @@ void DoPopulateBatch(string_view type, string_view prefix, size_t val_size, bool
     stub_tx->MultiSwitchCmd(cid);
     local_cntx.cid = cid;
     crb.SetReplyMode(ReplyMode::NONE);
-    stub_tx->InitByArgs(&cntx->transaction->GetTenant(), local_cntx.conn_state.db_index, args_span);
+    stub_tx->InitByArgs(cntx->tenant, local_cntx.conn_state.db_index, args_span);
 
     sf->service().InvokeCmd(cid, args_span, &local_cntx);
   }
@@ -262,7 +262,7 @@ void MergeObjHistMap(ObjHistMap&& src, ObjHistMap* dest) {
 }
 
 void DoBuildObjHist(EngineShard* shard, ConnectionContext* cntx, ObjHistMap* obj_hist_map) {
-  auto& db_slice = cntx->transaction->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = cntx->tenant->GetCurrentDbSlice();
   unsigned steps = 0;
 
   for (unsigned i = 0; i < db_slice.db_array_size(); ++i) {
@@ -289,7 +289,7 @@ void DoBuildObjHist(EngineShard* shard, ConnectionContext* cntx, ObjHistMap* obj
 }
 
 ObjInfo InspectOp(ConnectionContext* cntx, string_view key) {
-  auto& db_slice = cntx->transaction->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = cntx->tenant->GetCurrentDbSlice();
   auto db_index = cntx->db_index();
   auto [pt, exp_t] = db_slice.GetTables(db_index);
 
@@ -325,7 +325,7 @@ ObjInfo InspectOp(ConnectionContext* cntx, string_view key) {
 }
 
 OpResult<ValueCompressInfo> EstimateCompression(ConnectionContext* cntx, string_view key) {
-  auto& db_slice = cntx->transaction->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = cntx->tenant->GetCurrentDbSlice();
   auto db_index = cntx->db_index();
   auto [pt, exp_t] = db_slice.GetTables(db_index);
 
@@ -546,7 +546,7 @@ void DebugCmd::Load(string_view filename) {
 
   const CommandId* cid = sf_.service().FindCmd("FLUSHALL");
   intrusive_ptr<Transaction> flush_trans(new Transaction{cid});
-  flush_trans->InitByArgs(&cntx_->transaction->GetTenant(), 0, {});
+  flush_trans->InitByArgs(cntx_->tenant, 0, {});
   VLOG(1) << "Performing flush";
   error_code ec = sf_.Drakarys(flush_trans.get(), DbSlice::kDbAll);
   if (ec) {
@@ -752,7 +752,7 @@ void DebugCmd::PopulateRangeFiber(uint64_t from, uint64_t num_of_keys,
     // after running the callback
     // Note that running debug populate while running flushall/db can cause dcheck fail because the
     // finish cb is executed just when we finish populating the database.
-    cntx_->transaction->GetTenant().GetCurrentDbSlice().OnCbFinish();
+    cntx_->tenant->GetCurrentDbSlice().OnCbFinish();
   });
 }
 
@@ -940,7 +940,7 @@ void DebugCmd::Shards() {
 
   vector<ShardInfo> infos(shard_set->size());
   shard_set->RunBriefInParallel([&](EngineShard* shard) {
-    auto slice_stats = cntx_->transaction->GetTenant().GetCurrentDbSlice().GetStats();
+    auto slice_stats = cntx_->tenant->GetCurrentDbSlice().GetStats();
     auto& stats = infos[shard->shard_id()];
 
     stats.used_memory = shard->UsedMemory();

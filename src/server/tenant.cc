@@ -33,14 +33,21 @@ DbSlice& Tenant::GetDbSlice(ShardId sid) {
 }
 
 Tenants::Tenants() {
-  default_tenant_ = &GetOrInsert("");
 }
 
 Tenant& Tenants::GetDefaultTenant() {
+  std::lock_guard guard(mu_);
+
+  if (default_tenant_ == nullptr) {
+    default_tenant_ = &GetOrInsert("");
+  }
+
   return *default_tenant_;
 }
 
 Tenant& Tenants::GetOrInsert(std::string_view tenant) {
+  std::lock_guard guard(mu_);
+
   return tenants_[tenant];
 }
 

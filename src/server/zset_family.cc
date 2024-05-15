@@ -845,7 +845,7 @@ OpResult<ScoredMap> OpUnion(EngineShard* shard, Transaction* t, string_view dest
     }
   }
 
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   KeyIterWeightVec key_weight_vec(keys.Size() - removed_keys);
   unsigned index = 0;
   for (; start != end; ++start) {
@@ -898,7 +898,7 @@ OpResult<ScoredMap> OpInter(EngineShard* shard, Transaction* t, string_view dest
     }
   }
 
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   vector<pair<DbSlice::ItAndUpdater, double>> it_arr(keys.Size() - removed_keys);
 
   unsigned index = 0;
@@ -1266,7 +1266,7 @@ bool ParseLimit(string_view offset_str, string_view limit_str, ZSetFamily::Range
 }
 
 ScoredArray OpBZPop(Transaction* t, EngineShard* shard, std::string_view key, bool is_max) {
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   auto it_res = db_slice.FindMutable(t->GetDbContext(), key, OBJ_ZSET);
   CHECK(it_res) << t->DebugId() << " " << key;  // must exist and must be ok.
   auto it = it_res->it;
@@ -1355,7 +1355,7 @@ vector<ScoredMap> OpFetch(EngineShard* shard, Transaction* t) {
   vector<ScoredMap> results;
   results.reserve(keys.Size());
 
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   for (string_view key : keys) {
     auto it = db_slice.FindReadOnly(t->GetDbContext(), key, OBJ_ZSET);
     if (!it) {
@@ -1869,8 +1869,7 @@ void ZSetFamily::ZCard(CmdArgList args, ConnectionContext* cntx) {
   string_view key = ArgS(args, 0);
 
   auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<uint32_t> {
-    auto find_res =
-        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_ZSET);
+    auto find_res = t->GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_ZSET);
     if (!find_res) {
       return find_res.status();
     }

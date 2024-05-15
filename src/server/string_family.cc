@@ -416,7 +416,7 @@ SinkReplyBuilder::MGetResponse OpMGet(bool fetch_mcflag, bool fetch_mcver, const
   ShardArgs keys = t->GetShardArgs(shard->shard_id());
   DCHECK(!keys.Empty());
 
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
 
   SinkReplyBuilder::MGetResponse response(keys.Size());
   absl::InlinedVector<DbSlice::ConstIterator, 32> iters(keys.Size());
@@ -845,8 +845,7 @@ void StringFamily::SetNx(CmdArgList args, ConnectionContext* cntx) {
 // With tieringV2 support
 void StringFamily::Get(CmdArgList args, ConnectionContext* cntx) {
   auto cb = [key = ArgS(args, 0)](Transaction* tx, EngineShard* es) -> OpResult<StringValue> {
-    auto it_res =
-        tx->GetTenant().GetCurrentDbSlice().FindReadOnly(tx->GetDbContext(), key, OBJ_STRING);
+    auto it_res = tx->GetCurrentDbSlice().FindReadOnly(tx->GetDbContext(), key, OBJ_STRING);
     if (!it_res.ok())
       return it_res.status();
 
@@ -859,7 +858,7 @@ void StringFamily::Get(CmdArgList args, ConnectionContext* cntx) {
 // With tieringV2 support
 void StringFamily::GetDel(CmdArgList args, ConnectionContext* cntx) {
   auto cb = [key = ArgS(args, 0)](Transaction* tx, EngineShard* es) -> OpResult<StringValue> {
-    auto& db_slice = tx->GetTenant().GetCurrentDbSlice();
+    auto& db_slice = tx->GetCurrentDbSlice();
     auto it_res = db_slice.FindMutable(tx->GetDbContext(), key, OBJ_STRING);
     if (!it_res.ok())
       return it_res.status();
@@ -1218,10 +1217,7 @@ void StringFamily::MSetNx(CmdArgList args, ConnectionContext* cntx) {
   auto cb = [&](Transaction* t, EngineShard* es) {
     auto args = t->GetShardArgs(es->shard_id());
     for (auto arg_it = args.begin(); arg_it != args.end(); ++arg_it) {
-      auto it = cntx->transaction->GetTenant()
-                    .GetCurrentDbSlice()
-                    .FindReadOnly(t->GetDbContext(), *arg_it)
-                    .it;
+      auto it = cntx->tenant->GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), *arg_it).it;
       ++arg_it;
       if (IsValid(it)) {
         exists.store(true, memory_order_relaxed);
@@ -1253,8 +1249,7 @@ void StringFamily::StrLen(CmdArgList args, ConnectionContext* cntx) {
   string_view key = ArgS(args, 0);
 
   auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<size_t> {
-    auto it_res =
-        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_STRING);
+    auto it_res = t->GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_STRING);
     if (!it_res.ok())
       return it_res.status();
 

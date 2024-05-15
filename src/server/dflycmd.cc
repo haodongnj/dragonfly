@@ -456,7 +456,7 @@ void DflyCmd::TakeOver(CmdArgList args, ConnectionContext* cntx) {
 void DflyCmd::Expire(CmdArgList args, ConnectionContext* cntx) {
   RedisReplyBuilder* rb = static_cast<RedisReplyBuilder*>(cntx->reply_builder());
   cntx->transaction->ScheduleSingleHop([](Transaction* t, EngineShard* shard) {
-    t->GetTenant().GetCurrentDbSlice().ExpireAllIfNeeded();
+    t->GetCurrentDbSlice().ExpireAllIfNeeded();
     return OpStatus::OK;
   });
 

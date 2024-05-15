@@ -63,8 +63,7 @@ OpResult<string> FindFirstNonEmptySingleShard(Transaction* trans, int req_obj_ty
   string key;
   auto cb = [&](Transaction* t, EngineShard* shard) -> Transaction::RunnableResult {
     auto args = t->GetShardArgs(shard->shard_id());
-    auto ff_res = FindFirstReadOnly(t->GetTenant().GetCurrentDbSlice(), t->GetDbContext(), args,
-                                    req_obj_type);
+    auto ff_res = FindFirstReadOnly(t->GetCurrentDbSlice(), t->GetDbContext(), args, req_obj_type);
 
     if (ff_res == OpStatus::WRONG_TYPE)
       return OpStatus::WRONG_TYPE;
@@ -100,8 +99,7 @@ OpResult<ShardFFResult> FindFirstNonEmpty(Transaction* trans, int req_obj_type) 
 
   auto cb = [&](Transaction* t, EngineShard* shard) {
     auto args = t->GetShardArgs(shard->shard_id());
-    auto ff_res = FindFirstReadOnly(t->GetTenant().GetCurrentDbSlice(), t->GetDbContext(), args,
-                                    req_obj_type);
+    auto ff_res = FindFirstReadOnly(t->GetCurrentDbSlice(), t->GetDbContext(), args, req_obj_type);
     if (ff_res) {
       find_res[shard->shard_id()] =
           FFResult{ff_res->first->first.AsRef(), ff_res->second, shard->shard_id()};

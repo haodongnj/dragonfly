@@ -12,6 +12,7 @@
 
 #include "server/db_slice.h"
 #include "server/tx_base.h"
+#include "util/fibers/synchronization.h"
 
 namespace dfly {
 
@@ -35,8 +36,9 @@ class Tenants {
   Tenant& GetOrInsert(std::string_view tenant);
 
  private:
-  absl::node_hash_map<std::string, Tenant> tenants_;
-  Tenant* default_tenant_ = nullptr;
+  util::fb2::Mutex mu_{};
+  absl::node_hash_map<std::string, Tenant> tenants_ ABSL_GUARDED_BY(mu_);
+  Tenant* default_tenant_ ABSL_GUARDED_BY(mu_) = nullptr;
 };
 
 extern Tenants* tenants;

@@ -584,7 +584,7 @@ class Mover {
 };
 
 OpStatus Mover::OpFind(Transaction* t, EngineShard* es) {
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   ShardArgs largs = t->GetShardArgs(es->shard_id());
 
   // In case both src and dest are in the same shard, largs size will be 2.
@@ -738,7 +738,7 @@ OpResult<StringVec> OpDiff(const OpArgs& op_args, ShardArgs::Iterator start,
 
 // Read-only OpInter op on sets.
 OpResult<StringVec> OpInter(const Transaction* t, EngineShard* es, bool remove_first) {
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   ShardArgs args = t->GetShardArgs(es->shard_id());
   auto it = args.begin();
   if (remove_first) {
@@ -939,8 +939,7 @@ void SIsMember(CmdArgList args, ConnectionContext* cntx) {
   string_view val = ArgS(args, 1);
 
   auto cb = [&](Transaction* t, EngineShard* shard) {
-    auto find_res =
-        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
+    auto find_res = t->GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
 
     if (find_res) {
       SetType st{find_res.value()->second.RObjPtr(), find_res.value()->second.Encoding()};
@@ -971,8 +970,7 @@ void SMIsMember(CmdArgList args, ConnectionContext* cntx) {
   memberships.reserve(vals.size());
 
   auto cb = [&](Transaction* t, EngineShard* shard) {
-    auto find_res =
-        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
+    auto find_res = t->GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
     if (find_res) {
       SetType st{find_res.value()->second.RObjPtr(), find_res.value()->second.Encoding()};
       FindInSet(memberships, t->GetDbContext(), st, vals);
@@ -1036,8 +1034,7 @@ void SCard(CmdArgList args, ConnectionContext* cntx) {
   string_view key = ArgS(args, 0);
 
   auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<uint32_t> {
-    auto find_res =
-        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
+    auto find_res = t->GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
     if (!find_res) {
       return find_res.status();
     }
@@ -1212,8 +1209,7 @@ void SRandMember(CmdArgList args, ConnectionContext* cntx) {
 
   const auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<StringVec> {
     StringVec result;
-    auto find_res =
-        t->GetTenant().GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
+    auto find_res = t->GetCurrentDbSlice().FindReadOnly(t->GetDbContext(), key, OBJ_SET);
     if (!find_res) {
       return find_res.status();
     }

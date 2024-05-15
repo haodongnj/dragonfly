@@ -1057,6 +1057,7 @@ bool Transaction::IsActive(ShardId sid) const {
 }
 
 DbSlice& Transaction::GetCurrentDbSlice() const {
+  CHECK(tenant_ != nullptr);
   return tenant_->GetCurrentDbSlice();
 }
 

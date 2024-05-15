@@ -1137,7 +1137,7 @@ vector<OptString> OpJsonMGet(JsonPathV2 expression, const Transaction* t, Engine
   DCHECK(!args.Empty());
   vector<OptString> response(args.Size());
 
-  auto& db_slice = t->GetTenant().GetCurrentDbSlice();
+  auto& db_slice = t->GetCurrentDbSlice();
   unsigned index = 0;
   for (string_view key : args) {
     auto it_res = db_slice.FindReadOnly(t->GetDbContext(), key, OBJ_JSON);

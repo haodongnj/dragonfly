@@ -1056,7 +1056,7 @@ void HSetFamily::HRandField(CmdArgList args, ConnectionContext* cntx) {
   }
 
   auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<StringVec> {
-    auto& db_slice = cntx->transaction->GetTenant().GetCurrentDbSlice();
+    auto& db_slice = cntx->tenant->GetCurrentDbSlice();
     DbContext db_context = t->GetDbContext();
     auto it_res = db_slice.FindReadOnly(db_context, key, OBJ_HASH);
 

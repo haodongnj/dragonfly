@@ -150,7 +150,7 @@ void MultiCleanup(ConnectionContext* cntx) {
     ServerState::tlocal()->ReturnInterpreter(borrowed);
     exec_info.preborrowed_interpreter = nullptr;
   }
-  UnwatchAllKeys(&cntx->transaction->GetTenant(), &exec_info);
+  UnwatchAllKeys(cntx->tenant, &exec_info);
   exec_info.Clear();
 }
 
@@ -864,8 +864,8 @@ void Service::Init(util::AcceptServer* acceptor, std::vector<facade::Listener*> 
     ServerState::Init(index, shard_num, &user_registry_);
   });
 
-  shard_set->Init(shard_num, !opts.disable_time_update);
   tenants = new Tenants();
+  shard_set->Init(shard_num, !opts.disable_time_update);
   const auto tcp_disabled = GetFlag(FLAGS_port) == 0u;
   // We assume that listeners.front() is the main_listener
   // see dfly_main RunEngine
@@ -1226,7 +1226,7 @@ void Service::DispatchCommand(CmdArgList args, facade::ConnectionContext* cntx) 
     if (cid->IsTransactional()) {
       dfly_cntx->transaction->MultiSwitchCmd(cid);
       OpStatus status = dfly_cntx->transaction->InitByArgs(
-          &dfly_cntx->transaction->GetTenant(), dfly_cntx->conn_state.db_index, args_no_cmd);
+          dfly_cntx->tenant, dfly_cntx->conn_state.db_index, args_no_cmd);
 
       if (status != OpStatus::OK)
         return cntx->SendError(status);
@@ -1238,8 +1238,8 @@ void Service::DispatchCommand(CmdArgList args, facade::ConnectionContext* cntx) 
       dist_trans.reset(new Transaction{cid});
 
       if (!dist_trans->IsMulti()) {  // Multi command initialize themself based on their mode.
-        if (auto st = dist_trans->InitByArgs(&dfly_cntx->transaction->GetTenant(),
-                                             dfly_cntx->conn_state.db_index, args_no_cmd);
+        if (auto st = dist_trans->InitByArgs(dfly_cntx->tenant, dfly_cntx->conn_state.db_index,
+                                             args_no_cmd);
             st != OpStatus::OK)
           return cntx->SendError(st);
       }
@@ -1558,6 +1558,7 @@ bool RequirePrivilegedAuth() {
 facade::ConnectionContext* Service::CreateContext(util::FiberSocketBase* peer,
                                                   facade::Connection* owner) {
   ConnectionContext* res = new ConnectionContext{peer, owner};
+  res->tenant = &tenants->GetOrInsert("TODO_TENANT");
 
   if (peer->IsUDS()) {
     res->req_auth = false;
@@ -1638,7 +1639,7 @@ void Service::Watch(CmdArgList args, ConnectionContext* cntx) {
   auto cb = [&](Transaction* t, EngineShard* shard) {
     ShardArgs largs = t->GetShardArgs(shard->shard_id());
     for (auto k : largs) {
-      t->GetTenant().GetCurrentDbSlice().RegisterWatchedKey(cntx->db_index(), k, &exec_info);
+      t->GetCurrentDbSlice().RegisterWatchedKey(cntx->db_index(), k, &exec_info);
     }
 
     auto res = GenericFamily::OpExists(t->GetOpArgs(shard), largs);
@@ -1657,7 +1658,7 @@ void Service::Watch(CmdArgList args, ConnectionContext* cntx) {
 }
 
 void Service::Unwatch(CmdArgList args, ConnectionContext* cntx) {
-  UnwatchAllKeys(&cntx->transaction->GetTenant(), &cntx->conn_state.exec_info);
+  UnwatchAllKeys(cntx->tenant, &cntx->conn_state.exec_info);
   return cntx->SendOk();
 }
 
@@ -1963,8 +1964,7 @@ void Service::EvalInternal(CmdArgList args, const EvalArgs& eval_args, Interpret
     });
 
     ++ServerState::tlocal()->stats.eval_shardlocal_coordination_cnt;
-    tx->PrepareMultiForScheduleSingleHop(&cntx->transaction->GetTenant(), *sid, tx->GetDbIndex(),
-                                         args);
+    tx->PrepareMultiForScheduleSingleHop(cntx->tenant, *sid, tx->GetDbIndex(), args);
     tx->ScheduleSingleHop([&](Transaction*, EngineShard*) {
       boost::intrusive_ptr<Transaction> stub_tx =
           new Transaction{tx, *sid, slot_checker.GetUniqueSlotId()};
@@ -2054,8 +2054,7 @@ bool CheckWatchedKeyExpiry(ConnectionContext* cntx, const CommandRegistry& regis
   };
 
   cntx->transaction->MultiSwitchCmd(registry.Find(EXISTS));
-  cntx->transaction->InitByArgs(&cntx->transaction->GetTenant(), cntx->conn_state.db_index,
-                                CmdArgList{str_list});
+  cntx->transaction->InitByArgs(cntx->tenant, cntx->conn_state.db_index, CmdArgList{str_list});
   OpStatus status = cntx->transaction->ScheduleSingleHop(std::move(cb));
   CHECK_EQ(OpStatus::OK, status);
 
@@ -2209,8 +2208,8 @@ void Service::Exec(CmdArgList args, ConnectionContext* cntx) {
         CmdArgList args = absl::MakeSpan(arg_vec);
 
         if (scmd.Cid()->IsTransactional()) {
-          OpStatus st = cntx->transaction->InitByArgs(&cntx->transaction->GetTenant(),
-                                                      cntx->conn_state.db_index, args);
+          OpStatus st =
+              cntx->transaction->InitByArgs(cntx->tenant, cntx->conn_state.db_index, args);
           if (st != OpStatus::OK) {
             cntx->SendError(st);
             break;
@@ -2561,7 +2560,7 @@ void Service::OnClose(facade::ConnectionContext* cntx) {
     DCHECK(!conn_state.subscribe_info);
   }
 
-  UnwatchAllKeys(&server_cntx->transaction->GetTenant(), &conn_state.exec_info);
+  UnwatchAllKeys(server_cntx->tenant, &conn_state.exec_info);
 
   DeactivateMonitoring(server_cntx);
 

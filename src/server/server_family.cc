@@ -439,8 +439,8 @@ void ClientPauseCmd(CmdArgList args, vector<facade::Listener*> listeners, Connec
            chrono::steady_clock::now() < end_time;
   };
 
-  if (auto pause_fb_opt = Pause(listeners, &cntx->transaction->GetTenant(), cntx->conn(),
-                                pause_state, std::move(is_pause_in_progress));
+  if (auto pause_fb_opt = Pause(listeners, cntx->tenant, cntx->conn(), pause_state,
+                                std::move(is_pause_in_progress));
       pause_fb_opt) {
     pause_fb_opt->Detach();
     cntx->SendOk();
@@ -1446,7 +1446,7 @@ error_code ServerFamily::Drakarys(Transaction* transaction, DbIndex db_ind) {
 
   transaction->Execute(
       [db_ind](Transaction* t, EngineShard* shard) {
-        t->GetTenant().GetCurrentDbSlice().FlushDb(db_ind);
+        t->GetCurrentDbSlice().FlushDb(db_ind);
         return OpStatus::OK;
       },
       true);
@@ -1464,8 +1464,7 @@ void ServerFamily::DbSize(CmdArgList args, ConnectionContext* cntx) {
 
   shard_set->RunBriefInParallel(
       [&](EngineShard* shard) {
-        auto db_size =
-            cntx->transaction->GetTenant().GetCurrentDbSlice().DbSize(cntx->conn_state.db_index);
+        auto db_size = cntx->tenant->GetCurrentDbSlice().DbSize(cntx->conn_state.db_index);
         num_keys.fetch_add(db_size, memory_order_relaxed);
       },
       [](ShardId) { return true; });
@@ -1686,7 +1685,7 @@ void ServerFamily::Config(CmdArgList args, ConnectionContext* cntx) {
   }
 
   if (sub_cmd == "RESETSTAT") {
-    ResetStat(&cntx->transaction->GetTenant());
+    ResetStat(cntx->tenant);
     return cntx->SendOk();
   } else {
     return cntx->SendError(UnknownSubCmd(sub_cmd, "CONFIG"), kSyntaxErrType);
@@ -1928,7 +1927,7 @@ void ServerFamily::Info(CmdArgList args, ConnectionContext* cntx) {
     absl::StrAppend(&info, a1, ":", a2, "\r\n");
   };
 
-  Metrics m = GetMetrics(&cntx->transaction->GetTenant());
+  Metrics m = GetMetrics(cntx->tenant);
   DbStats total;
   for (const auto& db_stats : m.db_stats)
     total += db_stats;
