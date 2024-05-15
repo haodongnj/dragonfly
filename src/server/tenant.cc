@@ -39,7 +39,7 @@ Tenant& Tenants::GetDefaultTenant() {
   std::lock_guard guard(mu_);
 
   if (default_tenant_ == nullptr) {
-    default_tenant_ = &GetOrInsert("");
+    default_tenant_ = &tenants_[""];
   }
 
   return *default_tenant_;
