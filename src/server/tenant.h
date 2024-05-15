@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "server/blocking_controller.h"
 #include "server/db_slice.h"
 #include "server/tx_base.h"
 #include "util/fibers/synchronization.h"
@@ -23,9 +24,12 @@ class Tenant {
   DbSlice& GetCurrentDbSlice();
 
   DbSlice& GetDbSlice(ShardId sid);
+  BlockingController* GetOrAddBlockingController(EngineShard* shard);
+  BlockingController* GetBlockingController(ShardId sid);
 
  private:
   std::vector<std::unique_ptr<DbSlice>> shard_db_slices_;
+  std::vector<std::unique_ptr<BlockingController>> shard_blocking_controller_;
 };
 
 class Tenants {

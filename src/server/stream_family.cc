@@ -648,9 +648,10 @@ OpResult<streamID> OpAdd(const OpArgs& op_args, const AddTrimOpts& opts, CmdArgL
 
   StreamTrim(opts, stream_inst);
 
-  EngineShard* es = op_args.shard;
-  if (es->blocking_controller()) {
-    es->blocking_controller()->AwakeWatched(op_args.db_cntx.db_index, opts.key);
+  auto blocking_controller =
+      op_args.db_cntx.tenant->GetBlockingController(op_args.shard->shard_id());
+  if (blocking_controller) {
+    blocking_controller->AwakeWatched(op_args.db_cntx.db_index, opts.key);
   }
 
   return result_id;

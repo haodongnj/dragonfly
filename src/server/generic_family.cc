@@ -382,8 +382,9 @@ OpStatus Renamer::UpdateDest(Transaction* t, EngineShard* es) {
 
     dest_it->first.SetSticky(src_res_.sticky);
 
-    if (!is_prior_list && dest_it->second.ObjType() == OBJ_LIST && es->blocking_controller()) {
-      es->blocking_controller()->AwakeWatched(t->GetDbIndex(), dest_key);
+    auto bc = t->GetTenant().GetBlockingController(es->shard_id());
+    if (!is_prior_list && dest_it->second.ObjType() == OBJ_LIST && bc) {
+      bc->AwakeWatched(t->GetDbIndex(), dest_key);
     }
     if (es->journal()) {
       OpArgs op_args = t->GetOpArgs(es);
@@ -1481,8 +1482,9 @@ OpResult<void> GenericFamily::OpRen(const OpArgs& op_args, string_view from_key,
     to_res.it->first.SetSticky(sticky);
   }
 
-  if (!is_prior_list && to_res.it->second.ObjType() == OBJ_LIST && es->blocking_controller()) {
-    es->blocking_controller()->AwakeWatched(op_args.db_cntx.db_index, to_key);
+  auto bc = op_args.db_cntx.tenant->GetBlockingController(es->shard_id());
+  if (!is_prior_list && to_res.it->second.ObjType() == OBJ_LIST && bc) {
+    bc->AwakeWatched(op_args.db_cntx.db_index, to_key);
   }
   return OpStatus::OK;
 }
@@ -1522,8 +1524,9 @@ OpStatus GenericFamily::OpMove(const OpArgs& op_args, string_view key, DbIndex t
   auto& add_res = *op_result;
   add_res.it->first.SetSticky(sticky);
 
-  if (add_res.it->second.ObjType() == OBJ_LIST && op_args.shard->blocking_controller()) {
-    op_args.shard->blocking_controller()->AwakeWatched(target_db, key);
+  auto bc = op_args.db_cntx.tenant->GetBlockingController(op_args.shard->shard_id());
+  if (add_res.it->second.ObjType() == OBJ_LIST && bc) {
+    bc->AwakeWatched(target_db, key);
   }
 
   return OpStatus::OK;

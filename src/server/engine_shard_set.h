@@ -116,12 +116,6 @@ class EngineShard {
     return shard_search_indices_.get();
   }
 
-  BlockingController* EnsureBlockingController();
-
-  BlockingController* blocking_controller() {
-    return blocking_controller_.get();
-  }
-
   // for everyone to use for string transformations during atomic cpu sequences.
   sds tmp_str1;
 
@@ -247,7 +241,6 @@ class EngineShard {
   std::unique_ptr<TieredStorage> tiered_storage_;
   // TODO: Move indices to Tenant
   std::unique_ptr<ShardDocIndices> shard_search_indices_;
-  std::unique_ptr<BlockingController> blocking_controller_;
 
   using Counter = util::SlidingCounter<7>;
 

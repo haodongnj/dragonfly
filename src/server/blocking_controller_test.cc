@@ -103,7 +103,12 @@ TEST_F(BlockingControllerTest, Timeout) {
 
   EXPECT_EQ(status, facade::OpStatus::TIMED_OUT);
   unsigned num_watched = shard_set->Await(
-      0, [&] { return EngineShard::tlocal()->blocking_controller()->NumWatched(0); });
+
+      0, [&] {
+        return tenants->GetDefaultTenant()
+            .GetBlockingController(EngineShard::tlocal()->shard_id())
+            ->NumWatched(0);
+      });
 
   EXPECT_EQ(0, num_watched);
   trans_.reset();

@@ -342,11 +342,12 @@ OpResult<uint32_t> OpPush(const OpArgs& op_args, std::string_view key, ListDir d
   }
 
   if (res.is_new) {
-    if (es->blocking_controller()) {
+    auto blocking_controller = op_args.db_cntx.tenant->GetBlockingController(es->shard_id());
+    if (blocking_controller) {
       string tmp;
       string_view key = res.it->first.GetSlice(&tmp);
 
-      es->blocking_controller()->AwakeWatched(op_args.db_cntx.db_index, key);
+      blocking_controller->AwakeWatched(op_args.db_cntx.db_index, key);
       absl::StrAppend(debugMessages.Next(), "OpPush AwakeWatched: ", key, " by ",
                       op_args.tx->DebugId());
     }
@@ -446,11 +447,12 @@ OpResult<string> MoveTwoShards(Transaction* trans, string_view src, string_view 
         OpPush(op_args, key, dest_dir, false, span, true);
 
         // blocking_controller does not have to be set with non-blocking transactions.
-        if (shard->blocking_controller()) {
+        auto blocking_controller = t->GetTenant().GetBlockingController(shard->shard_id());
+        if (blocking_controller) {
           // hack, again. since we hacked which queue we are waiting on (see RunPair)
           // we must clean-up src key here manually. See RunPair why we do this.
           // in short- we suspended on "src" on both shards.
-          shard->blocking_controller()->FinalizeWatched(ArgSlice{&src, 1}, t);
+          blocking_controller->FinalizeWatched(ArgSlice{&src, 1}, t);
         }
       } else {
         DVLOG(1) << "Popping value from list: " << key;
@@ -858,10 +860,11 @@ OpResult<string> BPopPusher::RunSingle(ConnectionContext* cntx, time_point tp) {
         std::array<string_view, 4> arr = {pop_key_, push_key_, DirToSv(popdir_), DirToSv(pushdir_)};
         RecordJournal(op_args, "LMOVE", arr, 1);
       }
-      if (shard->blocking_controller()) {
+      auto blocking_controller = cntx->tenant->GetBlockingController(shard->shard_id());
+      if (blocking_controller) {
         string tmp;
 
-        shard->blocking_controller()->AwakeWatched(op_args.db_cntx.db_index, push_key_);
+        blocking_controller->AwakeWatched(op_args.db_cntx.db_index, push_key_);
         absl::StrAppend(debugMessages.Next(), "OpPush AwakeWatched: ", push_key_, " by ",
                         op_args.tx->DebugId());
       }

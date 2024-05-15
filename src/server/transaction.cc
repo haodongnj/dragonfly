@@ -639,7 +639,8 @@ bool Transaction::RunInShard(EngineShard* shard, bool txq_ooo) {
     // 1: to go over potential wakened keys, verify them and activate watch queues.
     // 2: if this transaction was notified and finished running - to remove it from the head
     //    of the queue and notify the next one.
-    if (auto* bcontroller = shard->blocking_controller(); bcontroller) {
+
+    if (auto* bcontroller = tenant_->GetBlockingController(shard->shard_id()); bcontroller) {
       if (awaked_prerun || was_suspended) {
         bcontroller->FinalizeWatched(GetShardArgs(idx), this);
       }
@@ -1221,7 +1222,7 @@ OpStatus Transaction::WaitOnWatch(const time_point& tp, WaitKeysProvider wkeys_p
   // Register keys on active shards blocking controllers and mark shard state as suspended.
   auto cb = [&](Transaction* t, EngineShard* shard) {
     auto keys = wkeys_provider(t, shard);
-    return t->WatchInShard(keys, shard, krc);
+    return t->WatchInShard(&t->GetTenant(), keys, shard, krc);
   };
   Execute(std::move(cb), true);
 
@@ -1259,14 +1260,15 @@ OpStatus Transaction::WaitOnWatch(const time_point& tp, WaitKeysProvider wkeys_p
   return result;
 }
 
-OpStatus Transaction::WatchInShard(const ShardArgs& keys, EngineShard* shard, KeyReadyChecker krc) {
+OpStatus Transaction::WatchInShard(Tenant* tenant, const ShardArgs& keys, EngineShard* shard,
+                                   KeyReadyChecker krc) {
   auto& sd = shard_data_[SidToId(shard->shard_id())];
 
   CHECK_EQ(0, sd.local_mask & SUSPENDED_Q);
   sd.local_mask |= SUSPENDED_Q;
   sd.local_mask &= ~OUT_OF_ORDER;
 
-  shard->EnsureBlockingController()->AddWatched(keys, std::move(krc), this);
+  tenant->GetOrAddBlockingController(shard)->AddWatched(keys, std::move(krc), this);
   DVLOG(2) << "WatchInShard " << DebugId() << ", first_key:" << keys.Front();
 
   return OpStatus::OK;
@@ -1280,8 +1282,9 @@ void Transaction::ExpireShardCb(const ShardArgs& wkeys, EngineShard* shard) {
   auto& sd = shard_data_[SidToId(shard->shard_id())];
   sd.local_mask &= ~KEYLOCK_ACQUIRED;
 
-  shard->blocking_controller()->FinalizeWatched(wkeys, this);
-  DCHECK(!shard->blocking_controller()->awakened_transactions().contains(this));
+  tenant_->GetBlockingController(shard->shard_id())->FinalizeWatched(wkeys, this);
+  DCHECK(
+      !tenant_->GetBlockingController(shard->shard_id())->awakened_transactions().contains(this));
 
   // Resume processing of transaction queue
   shard->PollExecution("unwatchcb", nullptr);
@@ -1343,8 +1346,9 @@ void Transaction::UnlockMultiShardCb(absl::Span<const LockFp> fps, EngineShard* 
   shard->RemoveContTx(this);
 
   // Wake only if no tx queue head is currently running
-  if (shard->blocking_controller() && shard->GetContTx() == nullptr)
-    shard->blocking_controller()->NotifyPending();
+  auto bc = tenant_->GetBlockingController(shard->shard_id());
+  if (bc && shard->GetContTx() == nullptr)
+    bc->NotifyPending();
 
   shard->PollExecution("unlockmulti", nullptr);
 }

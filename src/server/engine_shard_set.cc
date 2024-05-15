@@ -499,10 +499,16 @@ void EngineShard::PollExecution(const char* context, Transaction* trans) {
       trans = nullptr;
 
     if ((is_self && disarmed) || continuation_trans_->DisarmInShard(sid)) {
+      auto bc = continuation_trans_->GetTenant().GetBlockingController(shard_id_);
       if (bool keep = run(continuation_trans_, false); !keep) {
         // if this holds, we can remove this check altogether.
         DCHECK(continuation_trans_ == nullptr);
         continuation_trans_ = nullptr;
+      }
+      if (bc && bc->HasAwakedTransaction()) {
+        // Break if there are any awakened transactions, as we must give way to them
+        // before continuing to handle regular transactions from the queue.
+        return;
       }
     }
   }
@@ -512,7 +518,8 @@ void EngineShard::PollExecution(const char* context, Transaction* trans) {
   while (continuation_trans_ == nullptr && !txq_.Empty()) {
     // Break if there are any awakened transactions, as we must give way to them
     // before continuing to handle regular transactions from the queue.
-    if (blocking_controller_ && blocking_controller_->HasAwakedTransaction())
+    if (head && head->GetTenant().GetBlockingController(shard_id_) &&
+        head->GetTenant().GetBlockingController(shard_id_)->HasAwakedTransaction())
       break;
 
     head = get<Transaction*>(txq_.Front());
@@ -690,14 +697,6 @@ void EngineShard::CacheStats() {
 size_t EngineShard::UsedMemory() const {
   return mi_resource_.used() + zmalloc_used_memory_tl + SmallString::UsedThreadLocal() +
          search_indices()->GetUsedMemory();
-}
-
-BlockingController* EngineShard::EnsureBlockingController() {
-  if (!blocking_controller_) {
-    blocking_controller_.reset(new BlockingController(this));
-  }
-
-  return blocking_controller_.get();
 }
 
 void EngineShard::TEST_EnableHeartbeat() {

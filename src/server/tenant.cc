@@ -14,6 +14,7 @@ Tenants* tenants = nullptr;
 
 Tenant::Tenant() {
   shard_db_slices_.resize(shard_set->size());
+  shard_blocking_controller_.resize(shard_set->size());
   shard_set->RunBriefInParallel([&](EngineShard* es) {
     ShardId sid = es->shard_id();
     shard_db_slices_[sid] = make_unique<DbSlice>(sid, absl::GetFlag(FLAGS_cache_mode), es);
@@ -30,6 +31,18 @@ DbSlice& Tenant::GetCurrentDbSlice() {
 DbSlice& Tenant::GetDbSlice(ShardId sid) {
   CHECK_LT(sid, shard_db_slices_.size());
   return *shard_db_slices_[sid];
+}
+
+BlockingController* Tenant::GetOrAddBlockingController(EngineShard* shard) {
+  if (!shard_blocking_controller_[shard->shard_id()]) {
+    shard_blocking_controller_[shard->shard_id()].reset(new BlockingController(shard));
+  }
+
+  return shard_blocking_controller_[shard->shard_id()].get();
+}
+
+BlockingController* Tenant::GetBlockingController(ShardId sid) {
+  return shard_blocking_controller_[sid].get();
 }
 
 Tenants::Tenants() {
