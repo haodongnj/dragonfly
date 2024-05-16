@@ -53,6 +53,8 @@ void BlockingControllerTest::SetUp() {
 
   shard_set = new EngineShardSet(pp_.get());
   shard_set->Init(kNumThreads, false);
+  tenants = new Tenants();
+  tenants->Init();
 
   trans_.reset(new Transaction{&cid_});
 
