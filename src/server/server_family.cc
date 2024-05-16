@@ -2502,8 +2502,9 @@ void ServerFamily::ReplicaOf(CmdArgList args, ConnectionContext* cntx) {
 
 void ServerFamily::Replicate(string_view host, string_view port) {
   io::NullSink sink;
-  ConnectionContext ctxt{&sink, nullptr};
-  ctxt.skip_acl_validation = true;
+  ConnectionContext cntx{&sink, nullptr};
+  cntx.tenant = &tenants->GetDefaultTenant();
+  cntx.skip_acl_validation = true;
 
   StringVec replicaof_params{string(host), string(port)};
 
@@ -2512,7 +2513,7 @@ void ServerFamily::Replicate(string_view host, string_view port) {
     args_vec.emplace_back(MutableSlice{s.data(), s.size()});
   }
   CmdArgList args_list = absl::MakeSpan(args_vec);
-  ReplicaOfInternal(args_list, &ctxt, ActionOnConnectionFail::kContinueReplication);
+  ReplicaOfInternal(args_list, &cntx, ActionOnConnectionFail::kContinueReplication);
 }
 
 // REPLTAKEOVER <seconds> [SAVE]
