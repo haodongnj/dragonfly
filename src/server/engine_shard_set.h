@@ -60,9 +60,6 @@ class EngineShard {
     return shard_id_;
   }
 
-  DbSlice& default_db_slice();
-  const DbSlice& default_db_slice() const;
-
   PMR_NS::memory_resource* memory_resource() {
     return &mi_resource_;
   }
