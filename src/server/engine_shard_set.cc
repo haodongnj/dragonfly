@@ -530,13 +530,13 @@ void EngineShard::PollExecution(const char* context, Transaction* trans) {
   // Progress on the transaction queue if no transaction is running currently.
   Transaction* head = nullptr;
   while (continuation_trans_ == nullptr && !txq_.Empty()) {
+    head = get<Transaction*>(txq_.Front());
+
     // Break if there are any awakened transactions, as we must give way to them
     // before continuing to handle regular transactions from the queue.
-    if (head && head->GetTenant().GetBlockingController(shard_id_) &&
+    if (head->GetTenant().GetBlockingController(shard_id_) &&
         head->GetTenant().GetBlockingController(shard_id_)->HasAwakedTransaction())
       break;
-
-    head = get<Transaction*>(txq_.Front());
 
     VLOG(2) << "Considering head " << head->DebugId()
             << " isarmed: " << head->DEBUG_IsArmedInShard(sid);
