@@ -286,7 +286,7 @@ void EngineShard::ForceDefrag() {
 bool EngineShard::DoDefrag() {
   // --------------------------------------------------------------------------
   // NOTE: This task is running with exclusive access to the shard.
-  // i.e. - Since we are using shared noting access here, and all access
+  // i.e. - Since we are using shared nothing access here, and all access
   // are done using fibers, This fiber is run only when no other fiber in the
   // context of the controlling thread will access this shard!
   // --------------------------------------------------------------------------
@@ -295,6 +295,9 @@ bool EngineShard::DoDefrag() {
   const float threshold = GetFlag(FLAGS_mem_defrag_page_utilization_threshold);
 
   // TODO: enable tiered storage on non-default db slice
+  if (!namespaces->IsInitialized()) {
+    return false;
+  }
   DbSlice& slice = namespaces->GetDefaultNamespace().GetDbSlice(shard_->shard_id());
 
   // If we moved to an invalid db, skip as long as it's not the last one
@@ -325,7 +328,7 @@ bool EngineShard::DoDefrag() {
       }
     });
     traverses_count++;
-  } while (traverses_count < kMaxTraverses && cur);
+  } while (traverses_count < kMaxTraverses && cur && namespaces != nullptr);
 
   defrag_state_.UpdateScanState(cur.value());
 
@@ -587,6 +590,11 @@ void EngineShard::RemoveContTx(Transaction* tx) {
 }
 
 void EngineShard::Heartbeat() {
+  if (namespaces == nullptr || !namespaces->IsInitialized()) {
+    // Shutting down
+    return;
+  }
+
   CacheStats();
 
   if (IsReplica())  // Never run expiration on replica.

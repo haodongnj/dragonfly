@@ -808,7 +808,9 @@ Service::Service(ProactorPool* pp)
   });
 #endif
 
+  CHECK(shard_set == nullptr);
   shard_set = new EngineShardSet(pp);
+  CHECK(namespaces == nullptr);
   namespaces = new Namespaces();
 
   // We support less than 1024 threads and we support less than 1024 shards.
@@ -904,7 +906,12 @@ void Service::Shutdown() {
 
   ChannelStore::Destroy();
 
+  auto* ns_ptr = namespaces;
+  namespaces = nullptr;
+  delete ns_ptr;
+
   shard_set->Shutdown();
+
   pp_.Await([](ProactorBase* pb) { ServerState::tlocal()->Destroy(); });
 
   // wait for all the pending callbacks to stop.

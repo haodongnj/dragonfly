@@ -214,7 +214,6 @@ void BaseFamilyTest::ResetService() {
     default_ns->GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000, 0);
   };
   shard_set->RunBriefInParallel(cb);
-  namespaces->Reset();
 
   const TestInfo* const test_info = UnitTest::GetInstance()->current_test_info();
   LOG(INFO) << "Starting " << test_info->name();
@@ -268,6 +267,7 @@ void BaseFamilyTest::ShutdownService() {
 
   service_->Shutdown();
   service_.reset();
+
   delete shard_set;
   shard_set = nullptr;
 

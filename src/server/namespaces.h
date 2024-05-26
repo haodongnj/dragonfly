@@ -30,14 +30,17 @@ class Namespace {
  private:
   std::vector<std::unique_ptr<DbSlice>> shard_db_slices_;
   std::vector<std::unique_ptr<BlockingController>> shard_blocking_controller_;
+
+  friend class Namespaces;
 };
 
 class Namespaces {
  public:
-  Namespaces();
+  Namespaces() = default;
+  ~Namespaces();
 
   void Init();
-  void Reset();
+  bool IsInitialized() const;
 
   Namespace& GetDefaultNamespace() const;  // No locks
   Namespace& GetOrInsert(std::string_view ns);
@@ -45,7 +48,7 @@ class Namespaces {
  private:
   util::fb2::Mutex mu_{};
   absl::node_hash_map<std::string, Namespace> namespaces_ ABSL_GUARDED_BY(mu_);
-  Namespace* default_namespace_ ABSL_GUARDED_BY(mu_) = nullptr;
+  Namespace* default_namespace_ = nullptr;
 };
 
 extern Namespaces* namespaces;

@@ -16,6 +16,7 @@ Namespace::Namespace() {
   shard_db_slices_.resize(shard_set->size());
   shard_blocking_controller_.resize(shard_set->size());
   shard_set->RunBriefInParallel([&](EngineShard* es) {
+    CHECK(es != nullptr);
     ShardId sid = es->shard_id();
     shard_db_slices_[sid] = make_unique<DbSlice>(sid, absl::GetFlag(FLAGS_cache_mode), es);
     shard_db_slices_[sid]->UpdateExpireBase(absl::GetCurrentTimeNanos() / 1000000, 0);
@@ -45,21 +46,22 @@ BlockingController* Namespace::GetBlockingController(ShardId sid) {
   return shard_blocking_controller_[sid].get();
 }
 
-Namespaces::Namespaces() {
-}
-
-void Namespaces::Reset() {
-  std::lock_guard guard(mu_);
-  for (auto& ns : namespaces_) {
-    shard_set->RunBriefInParallel([&](EngineShard* es) {
-      ns.second.GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000, 0);
-    });
-  }
+Namespaces::~Namespaces() {
+  shard_set->RunBriefInParallel([&](EngineShard* es) {
+    CHECK(es != nullptr);
+    for (auto& ns : namespaces_) {
+      ns.second.shard_db_slices_[es->shard_id()].reset();
+    }
+  });
 }
 
 void Namespaces::Init() {
-  CHECK(default_namespace_ == nullptr);
+  DCHECK(default_namespace_ == nullptr);
   default_namespace_ = &GetOrInsert("");
+}
+
+bool Namespaces::IsInitialized() const {
+  return default_namespace_ != nullptr;
 }
 
 Namespace& Namespaces::GetDefaultNamespace() const {

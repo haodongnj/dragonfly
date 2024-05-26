@@ -53,6 +53,7 @@ void BlockingControllerTest::SetUp() {
 
   shard_set = new EngineShardSet(pp_.get());
   shard_set->Init(kNumThreads, false);
+
   namespaces = new Namespaces();
   namespaces->Init();
 
@@ -72,6 +73,9 @@ void BlockingControllerTest::SetUp() {
 }
 
 void BlockingControllerTest::TearDown() {
+  delete namespaces;
+  namespaces = nullptr;
+
   shard_set->Shutdown();
   delete shard_set;
 
