@@ -20,9 +20,9 @@ extern "C" {
 #include "io/proc_reader.h"
 #include "server/blocking_controller.h"
 #include "server/cluster/cluster_defs.h"
+#include "server/namespaces.h"
 #include "server/search/doc_index.h"
 #include "server/server_state.h"
-#include "server/tenant.h"
 #include "server/tiered_storage.h"
 #include "server/tiering/common.h"
 #include "server/transaction.h"
@@ -295,7 +295,7 @@ bool EngineShard::DoDefrag() {
   const float threshold = GetFlag(FLAGS_mem_defrag_page_utilization_threshold);
 
   // TODO: enable tiered storage on non-default db slice
-  DbSlice& slice = tenants->GetDefaultTenant().GetDbSlice(shard_->shard_id());
+  DbSlice& slice = namespaces->GetDefaultNamespace().GetDbSlice(shard_->shard_id());
 
   // If we moved to an invalid db, skip as long as it's not the last one
   while (!slice.IsDbValid(defrag_state_.dbid) && defrag_state_.dbid + 1 < slice.db_array_size())
@@ -426,7 +426,7 @@ void EngineShard::InitThreadLocal(ProactorBase* pb, bool update_db_time, size_t 
         << "Only ioring based backing storage is supported. Exiting...";
 
     // TODO: enable tiered storage on non-default db slice
-    DbSlice& db_slice = tenants->GetDefaultTenant().GetDbSlice(shard_->shard_id());
+    DbSlice& db_slice = namespaces->GetDefaultNamespace().GetDbSlice(shard_->shard_id());
     shard_->tiered_storage_ = make_unique<TieredStorage>(&db_slice, max_file_size);
     error_code ec = shard_->tiered_storage_->Open(backing_prefix);
     CHECK(!ec) << ec.message();
@@ -513,7 +513,7 @@ void EngineShard::PollExecution(const char* context, Transaction* trans) {
       trans = nullptr;
 
     if ((is_self && disarmed) || continuation_trans_->DisarmInShard(sid)) {
-      auto bc = continuation_trans_->GetTenant().GetBlockingController(shard_id_);
+      auto bc = continuation_trans_->GetNamespace().GetBlockingController(shard_id_);
       if (bool keep = run(continuation_trans_, false); !keep) {
         // if this holds, we can remove this check altogether.
         DCHECK(continuation_trans_ == nullptr);
@@ -534,8 +534,8 @@ void EngineShard::PollExecution(const char* context, Transaction* trans) {
 
     // Break if there are any awakened transactions, as we must give way to them
     // before continuing to handle regular transactions from the queue.
-    if (head->GetTenant().GetBlockingController(shard_id_) &&
-        head->GetTenant().GetBlockingController(shard_id_)->HasAwakedTransaction())
+    if (head->GetNamespace().GetBlockingController(shard_id_) &&
+        head->GetNamespace().GetBlockingController(shard_id_)->HasAwakedTransaction())
       break;
 
     VLOG(2) << "Considering head " << head->DebugId()
@@ -613,8 +613,8 @@ void EngineShard::Heartbeat() {
   DbContext db_cntx;
   db_cntx.time_now_ms = GetCurrentTimeMs();
 
-  // TODO: iterate over tenants
-  DbSlice& db_slice = tenants->GetDefaultTenant().GetDbSlice(shard_id());
+  // TODO: iterate over namespaces
+  DbSlice& db_slice = namespaces->GetDefaultNamespace().GetDbSlice(shard_id());
   for (unsigned i = 0; i < db_slice.db_array_size(); ++i) {
     if (!db_slice.IsDbValid(i))
       continue;
@@ -696,7 +696,7 @@ void EngineShard::CacheStats() {
 
   // Used memory for this shard.
   size_t used_mem = UsedMemory();
-  DbSlice& db_slice = tenants->GetDefaultTenant().GetDbSlice(shard_id());
+  DbSlice& db_slice = namespaces->GetDefaultNamespace().GetDbSlice(shard_id());
   cached_stats[db_slice.shard_id()].used_memory.store(used_mem, memory_order_relaxed);
   ssize_t free_mem = max_memory_limit - used_mem_current.load(memory_order_relaxed);
 
@@ -739,7 +739,7 @@ auto EngineShard::AnalyzeTxQueue() const -> TxQueueInfo {
   info.tx_total = queue->size();
   unsigned max_db_id = 0;
 
-  auto& db_slice = tenants->GetDefaultTenant().GetCurrentDbSlice();
+  auto& db_slice = namespaces->GetDefaultNamespace().GetCurrentDbSlice();
 
   do {
     auto value = queue->At(cur);
@@ -884,7 +884,7 @@ void EngineShardSet::TEST_EnableHeartBeat() {
 
 void EngineShardSet::TEST_EnableCacheMode() {
   RunBriefInParallel([](EngineShard* shard) {
-    tenants->GetDefaultTenant().GetCurrentDbSlice().TEST_EnableCacheMode();
+    namespaces->GetDefaultNamespace().GetCurrentDbSlice().TEST_EnableCacheMode();
   });
 }
 

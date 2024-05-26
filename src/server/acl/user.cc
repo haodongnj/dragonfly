@@ -57,8 +57,8 @@ void User::Update(UpdateRequest&& req) {
     SetIsActive(*req.is_active);
   }
 
-  if (req.tenant) {
-    SetTenant(*req.tenant);
+  if (req.ns) {
+    SetNamespace(*req.ns);
   }
 }
 
@@ -74,12 +74,12 @@ void User::SetPasswordHash(std::string_view password, bool is_hashed) {
   password_hash_ = StringSHA256(password);
 }
 
-void User::SetTenant(const std::string& tenant) {
-  tenant_ = tenant;
+void User::SetNamespace(const std::string& ns) {
+  namespace_ = ns;
 }
 
-std::string User::Tenant() const {
-  return tenant_;
+std::string User::Namespace() const {
+  return namespace_;
 }
 
 bool User::HasPassword(std::string_view password) const {

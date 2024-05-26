@@ -33,9 +33,9 @@ class ListFamilyTest : public BaseFamilyTest {
   static unsigned NumWatched() {
     atomic_uint32_t sum{0};
 
-    auto tenant = &tenants->GetDefaultTenant();
+    auto ns = &namespaces->GetDefaultNamespace();
     shard_set->RunBriefInParallel([&](EngineShard* es) {
-      auto* bc = tenant->GetBlockingController(es->shard_id());
+      auto* bc = ns->GetBlockingController(es->shard_id());
       if (bc)
         sum.fetch_add(bc->NumWatched(0), memory_order_relaxed);
     });
@@ -45,9 +45,9 @@ class ListFamilyTest : public BaseFamilyTest {
 
   static bool HasAwakened() {
     atomic_uint32_t sum{0};
-    auto tenant = &tenants->GetDefaultTenant();
+    auto ns = &namespaces->GetDefaultNamespace();
     shard_set->RunBriefInParallel([&](EngineShard* es) {
-      auto* bc = tenant->GetBlockingController(es->shard_id());
+      auto* bc = ns->GetBlockingController(es->shard_id());
       if (bc)
         sum.fetch_add(bc->HasAwakedTransaction(), memory_order_relaxed);
     });

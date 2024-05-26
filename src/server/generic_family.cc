@@ -382,7 +382,7 @@ OpStatus Renamer::UpdateDest(Transaction* t, EngineShard* es) {
 
     dest_it->first.SetSticky(src_res_.sticky);
 
-    auto bc = t->GetTenant().GetBlockingController(es->shard_id());
+    auto bc = t->GetNamespace().GetBlockingController(es->shard_id());
     if (!is_prior_list && dest_it->second.ObjType() == OBJ_LIST && bc) {
       bc->AwakeWatched(t->GetDbIndex(), dest_key);
     }
@@ -407,7 +407,7 @@ OpStatus Renamer::UpdateDest(Transaction* t, EngineShard* es) {
 }
 
 OpStatus OpPersist(const OpArgs& op_args, string_view key) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto res = db_slice.FindMutable(op_args.db_cntx, key);
 
   if (!IsValid(res.it)) {
@@ -423,7 +423,7 @@ OpStatus OpPersist(const OpArgs& op_args, string_view key) {
 }
 
 OpResult<std::string> OpDump(const OpArgs& op_args, string_view key) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto [it, expire_it] = db_slice.FindReadOnly(op_args.db_cntx, key);
 
   if (IsValid(it)) {
@@ -443,7 +443,7 @@ OpResult<bool> OnRestore(const OpArgs& op_args, std::string_view key, std::strin
     return OpStatus::OUT_OF_RANGE;
   }
 
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   // The redis impl (see cluster.c function restoreCommand), remove the old key if
   // the replace option is set, so lets do the same here
   {
@@ -476,7 +476,7 @@ OpResult<bool> OnRestore(const OpArgs& op_args, std::string_view key, std::strin
 
 bool ScanCb(const OpArgs& op_args, PrimeIterator prime_it, const ScanOpts& opts, string* scratch,
             StringVec* res) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
 
   DbSlice::Iterator it = DbSlice::Iterator::FromPrime(prime_it);
   if (prime_it->second.HasExpire()) {
@@ -505,7 +505,7 @@ bool ScanCb(const OpArgs& op_args, PrimeIterator prime_it, const ScanOpts& opts,
 }
 
 void OpScan(const OpArgs& op_args, const ScanOpts& scan_opts, uint64_t* cursor, StringVec* vec) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   DCHECK(db_slice.IsDbValid(op_args.db_cntx.db_index));
 
   unsigned cnt = 0;
@@ -542,9 +542,8 @@ uint64_t ScanGeneric(uint64_t cursor, const ScanOpts& scan_opts, StringVec* keys
   }
 
   cursor >>= 10;
-  DbContext db_cntx{.tenant = cntx->tenant,
-                    .db_index = cntx->conn_state.db_index,
-                    .time_now_ms = GetCurrentTimeMs()};
+  DbContext db_cntx{
+      .ns = cntx->ns, .db_index = cntx->conn_state.db_index, .time_now_ms = GetCurrentTimeMs()};
 
   do {
     ess->Await(sid, [&] {
@@ -575,7 +574,7 @@ uint64_t ScanGeneric(uint64_t cursor, const ScanOpts& scan_opts, StringVec* keys
 }
 
 OpStatus OpExpire(const OpArgs& op_args, string_view key, const DbSlice::ExpireParams& params) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto find_res = db_slice.FindMutable(op_args.db_cntx, key);
   if (!IsValid(find_res.it)) {
     return OpStatus::KEY_NOTFOUND;
@@ -623,7 +622,7 @@ OpResult<long> OpFieldTtl(Transaction* t, EngineShard* shard, string_view key, s
 
 OpResult<uint32_t> OpDel(const OpArgs& op_args, const ShardArgs& keys) {
   DVLOG(1) << "Del: " << keys.Front();
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
 
   uint32_t res = 0;
 
@@ -641,7 +640,7 @@ OpResult<uint32_t> OpDel(const OpArgs& op_args, const ShardArgs& keys) {
 OpResult<uint32_t> OpStick(const OpArgs& op_args, const ShardArgs& keys) {
   DVLOG(1) << "Stick: " << keys.Front();
 
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
 
   uint32_t res = 0;
   for (string_view key : keys) {
@@ -1026,7 +1025,7 @@ OpResultTyped<SortEntryList> OpFetchSortEntries(const OpArgs& op_args, std::stri
                                                 bool alpha) {
   using namespace container_utils;
 
-  auto it = op_args.db_cntx.tenant->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key).it;
+  auto it = op_args.db_cntx.ns->GetCurrentDbSlice().FindReadOnly(op_args.db_cntx, key).it;
   if (!IsValid(it) || !IsContainer(it->second)) {
     return OpStatus::KEY_NOTFOUND;
   }
@@ -1279,7 +1278,7 @@ void GenericFamily::Select(CmdArgList args, ConnectionContext* cntx) {
   }
   cntx->conn_state.db_index = index;
   auto cb = [cntx, index](EngineShard* shard) {
-    auto& db_slice = cntx->tenant->GetCurrentDbSlice();
+    auto& db_slice = cntx->ns->GetCurrentDbSlice();
     db_slice.ActivateDb(index);
     return OpStatus::OK;
   };
@@ -1309,7 +1308,7 @@ void GenericFamily::Type(CmdArgList args, ConnectionContext* cntx) {
   std::string_view key = ArgS(args, 0);
 
   auto cb = [&](Transaction* t, EngineShard* shard) -> OpResult<int> {
-    auto& db_slice = cntx->tenant->GetCurrentDbSlice();
+    auto& db_slice = cntx->ns->GetCurrentDbSlice();
     auto it = db_slice.FindReadOnly(t->GetDbContext(), key).it;
     if (!it.is_done()) {
       return it->second.ObjType();
@@ -1418,7 +1417,7 @@ OpResult<uint64_t> GenericFamily::OpTtl(Transaction* t, EngineShard* shard, stri
 
 OpResult<uint32_t> GenericFamily::OpExists(const OpArgs& op_args, const ShardArgs& keys) {
   DVLOG(1) << "Exists: " << keys.Front();
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   uint32_t res = 0;
 
   for (string_view key : keys) {
@@ -1431,7 +1430,7 @@ OpResult<uint32_t> GenericFamily::OpExists(const OpArgs& op_args, const ShardArg
 OpResult<void> GenericFamily::OpRen(const OpArgs& op_args, string_view from_key, string_view to_key,
                                     bool skip_exists) {
   auto* es = op_args.shard;
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto from_res = db_slice.FindMutable(op_args.db_cntx, from_key);
   if (!IsValid(from_res.it))
     return OpStatus::KEY_NOTFOUND;
@@ -1482,7 +1481,7 @@ OpResult<void> GenericFamily::OpRen(const OpArgs& op_args, string_view from_key,
     to_res.it->first.SetSticky(sticky);
   }
 
-  auto bc = op_args.db_cntx.tenant->GetBlockingController(es->shard_id());
+  auto bc = op_args.db_cntx.ns->GetBlockingController(es->shard_id());
   if (!is_prior_list && to_res.it->second.ObjType() == OBJ_LIST && bc) {
     bc->AwakeWatched(op_args.db_cntx.db_index, to_key);
   }
@@ -1493,7 +1492,7 @@ OpResult<void> GenericFamily::OpRen(const OpArgs& op_args, string_view from_key,
 // as a global transaction.
 // TODO: Allow running OpMove without a global transaction.
 OpStatus GenericFamily::OpMove(const OpArgs& op_args, string_view key, DbIndex target_db) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
 
   // Fetch value at key in current db.
   auto from_res = db_slice.FindMutable(op_args.db_cntx, key);
@@ -1524,7 +1523,7 @@ OpStatus GenericFamily::OpMove(const OpArgs& op_args, string_view key, DbIndex t
   auto& add_res = *op_result;
   add_res.it->first.SetSticky(sticky);
 
-  auto bc = op_args.db_cntx.tenant->GetBlockingController(op_args.shard->shard_id());
+  auto bc = op_args.db_cntx.ns->GetBlockingController(op_args.shard->shard_id());
   if (add_res.it->second.ObjType() == OBJ_LIST && bc) {
     bc->AwakeWatched(target_db, key);
   }
@@ -1537,7 +1536,7 @@ void GenericFamily::RandomKey(CmdArgList args, ConnectionContext* cntx) {
 
   absl::BitGen bitgen;
   atomic_size_t candidates_counter{0};
-  DbContext db_cntx{.tenant = cntx->tenant, .db_index = cntx->conn_state.db_index};
+  DbContext db_cntx{.ns = cntx->ns, .db_index = cntx->conn_state.db_index};
   ScanOpts scan_opts;
   scan_opts.limit = 3;  // number of entries per shard
   std::vector<StringVec> candidates_collection(shard_set->size());
@@ -1545,7 +1544,7 @@ void GenericFamily::RandomKey(CmdArgList args, ConnectionContext* cntx) {
   shard_set->RunBriefInParallel(
       [&](EngineShard* shard) {
         auto [prime_table, expire_table] =
-            cntx->tenant->GetCurrentDbSlice().GetTables(db_cntx.db_index);
+            cntx->ns->GetCurrentDbSlice().GetTables(db_cntx.db_index);
         if (prime_table->size() == 0) {
           return;
         }

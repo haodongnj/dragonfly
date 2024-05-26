@@ -35,11 +35,11 @@ extern "C" {
 #include "server/engine_shard_set.h"
 #include "server/error.h"
 #include "server/main_service.h"
+#include "server/namespaces.h"
 #include "server/rdb_extensions.h"
 #include "server/search/doc_index.h"
 #include "server/serializer_commons.h"
 #include "server/snapshot.h"
-#include "server/tenant.h"
 #include "server/tiering/common.h"
 #include "util/fibers/simple_channel.h"
 
@@ -1252,7 +1252,7 @@ error_code RdbSaver::Impl::ConsumeChannel(const Cancellation* cll) {
 void RdbSaver::Impl::StartSnapshotting(bool stream_journal, const Cancellation* cll,
                                        EngineShard* shard) {
   auto& s = GetSnapshot(shard);
-  auto& db_slice = tenants->GetDefaultTenant().GetCurrentDbSlice();
+  auto& db_slice = namespaces->GetDefaultNamespace().GetCurrentDbSlice();
   s = std::make_unique<SliceSnapshot>(&db_slice, &channel_, compression_mode_);
 
   s->Start(stream_journal, cll);
@@ -1260,7 +1260,7 @@ void RdbSaver::Impl::StartSnapshotting(bool stream_journal, const Cancellation* 
 
 void RdbSaver::Impl::StartIncrementalSnapshotting(Context* cntx, EngineShard* shard,
                                                   LSN start_lsn) {
-  auto& db_slice = tenants->GetDefaultTenant().GetCurrentDbSlice();
+  auto& db_slice = namespaces->GetDefaultNamespace().GetCurrentDbSlice();
   auto& s = GetSnapshot(shard);
   s = std::make_unique<SliceSnapshot>(&db_slice, &channel_, compression_mode_);
 

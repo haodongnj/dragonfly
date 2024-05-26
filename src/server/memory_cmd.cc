@@ -236,7 +236,7 @@ void PushMemoryUsageStats(const base::IoBuf::MemoryUsage& mem, string_view prefi
 void MemoryCmd::Stats() {
   vector<pair<string, size_t>> stats;
   stats.reserve(25);
-  auto server_metrics = owner_->GetMetrics(cntx_->tenant);
+  auto server_metrics = owner_->GetMetrics(cntx_->ns);
 
   // RSS
   stats.push_back({"rss_bytes", rss_mem_current.load(memory_order_relaxed)});
@@ -344,7 +344,7 @@ void MemoryCmd::MallocStats(CmdArgList args) {
 void MemoryCmd::Usage(std::string_view key) {
   ShardId sid = Shard(key, shard_set->size());
   ssize_t memory_usage = shard_set->pool()->at(sid)->AwaitBrief([key, this]() -> ssize_t {
-    auto& db_slice = cntx_->tenant->GetCurrentDbSlice();
+    auto& db_slice = cntx_->ns->GetCurrentDbSlice();
     auto [pt, exp_t] = db_slice.GetTables(cntx_->db_index());
     PrimeIterator it = pt->Find(key);
     if (IsValid(it)) {

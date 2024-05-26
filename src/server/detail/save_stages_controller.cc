@@ -393,7 +393,7 @@ void SaveStagesController::CloseCb(unsigned index) {
   }
 
   if (auto* es = EngineShard::tlocal(); use_dfs_format_ && es)
-    tenants->GetDefaultTenant().GetCurrentDbSlice().ResetUpdateEvents();
+    namespaces->GetDefaultNamespace().GetCurrentDbSlice().ResetUpdateEvents();
 }
 
 void SaveStagesController::RunStage(void (SaveStagesController::*cb)(unsigned)) {

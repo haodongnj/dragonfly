@@ -53,8 +53,8 @@ void BlockingControllerTest::SetUp() {
 
   shard_set = new EngineShardSet(pp_.get());
   shard_set->Init(kNumThreads, false);
-  tenants = new Tenants();
-  tenants->Init();
+  namespaces = new Namespaces();
+  namespaces->Init();
 
   trans_.reset(new Transaction{&cid_});
 
@@ -63,7 +63,7 @@ void BlockingControllerTest::SetUp() {
     arg_vec_.emplace_back(s);
   }
 
-  trans_->InitByArgs(&tenants->GetDefaultTenant(), 0, {arg_vec_.data(), arg_vec_.size()});
+  trans_->InitByArgs(&namespaces->GetDefaultNamespace(), 0, {arg_vec_.data(), arg_vec_.size()});
   CHECK_EQ(0u, Shard("x", shard_set->size()));
   CHECK_EQ(2u, Shard("z", shard_set->size()));
 
@@ -107,7 +107,7 @@ TEST_F(BlockingControllerTest, Timeout) {
   unsigned num_watched = shard_set->Await(
 
       0, [&] {
-        return tenants->GetDefaultTenant()
+        return namespaces->GetDefaultNamespace()
             .GetBlockingController(EngineShard::tlocal()->shard_id())
             ->NumWatched(0);
       });

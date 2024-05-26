@@ -605,7 +605,7 @@ int StreamTrim(const AddTrimOpts& opts, stream* s) {
 
 OpResult<streamID> OpAdd(const OpArgs& op_args, const AddTrimOpts& opts, CmdArgList args) {
   DCHECK(!args.empty() && args.size() % 2 == 0);
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   DbSlice::AddOrFindResult add_res;
 
   if (opts.no_mkstream) {
@@ -648,8 +648,7 @@ OpResult<streamID> OpAdd(const OpArgs& op_args, const AddTrimOpts& opts, CmdArgL
 
   StreamTrim(opts, stream_inst);
 
-  auto blocking_controller =
-      op_args.db_cntx.tenant->GetBlockingController(op_args.shard->shard_id());
+  auto blocking_controller = op_args.db_cntx.ns->GetBlockingController(op_args.shard->shard_id());
   if (blocking_controller) {
     blocking_controller->AwakeWatched(op_args.db_cntx.db_index, opts.key);
   }
@@ -658,7 +657,7 @@ OpResult<streamID> OpAdd(const OpArgs& op_args, const AddTrimOpts& opts, CmdArgL
 }
 
 OpResult<RecordVec> OpRange(const OpArgs& op_args, string_view key, const RangeOpts& opts) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindReadOnly(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -802,7 +801,7 @@ OpResult<vector<pair<string_view, streamID>>> OpLastIDs(const OpArgs& op_args,
                                                         const ShardArgs& args) {
   DCHECK(!args.Empty());
 
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
 
   vector<pair<string_view, streamID>> last_ids;
   for (string_view key : args) {
@@ -867,7 +866,7 @@ vector<RecordVec> OpRead(const OpArgs& op_args, const ShardArgs& shard_args, con
 }
 
 OpResult<uint32_t> OpLen(const OpArgs& op_args, string_view key) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindReadOnly(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -878,7 +877,7 @@ OpResult<uint32_t> OpLen(const OpArgs& op_args, string_view key) {
 
 OpResult<vector<GroupInfo>> OpListGroups(const DbContext& db_cntx, string_view key,
                                          EngineShard* shard) {
-  auto& db_slice = db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindReadOnly(db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -1010,7 +1009,7 @@ void GetConsumers(stream* s, streamCG* cg, long long count, GroupInfo* ginfo) {
 
 OpResult<StreamInfo> OpStreams(const DbContext& db_cntx, string_view key, EngineShard* shard,
                                int full, size_t count) {
-  auto& db_slice = db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindReadOnly(db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -1073,7 +1072,7 @@ OpResult<StreamInfo> OpStreams(const DbContext& db_cntx, string_view key, Engine
 
 OpResult<vector<ConsumerInfo>> OpConsumers(const DbContext& db_cntx, EngineShard* shard,
                                            string_view stream_name, string_view group_name) {
-  auto& db_slice = db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindReadOnly(db_cntx, stream_name, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -1117,7 +1116,7 @@ struct CreateOpts {
 };
 
 OpStatus OpCreate(const OpArgs& op_args, string_view key, const CreateOpts& opts) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_STREAM);
   int64_t entries_read = SCG_INVALID_ENTRIES_READ;
   if (!res_it) {
@@ -1164,7 +1163,7 @@ struct FindGroupResult {
 
 OpResult<FindGroupResult> FindGroup(const OpArgs& op_args, string_view key, string_view gname) {
   auto* shard = op_args.shard;
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -1453,7 +1452,7 @@ OpStatus OpSetId(const OpArgs& op_args, string_view key, string_view gname, stri
 }
 
 OpStatus OpSetId2(const OpArgs& op_args, string_view key, const streamID& sid) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -1491,7 +1490,7 @@ OpStatus OpSetId2(const OpArgs& op_args, string_view key, const streamID& sid) {
 }
 
 OpResult<uint32_t> OpDel(const OpArgs& op_args, string_view key, absl::Span<streamID> ids) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, key, OBJ_STREAM);
   if (!res_it)
     return res_it.status();
@@ -1920,7 +1919,7 @@ void XGroupHelp(CmdArgList args, ConnectionContext* cntx) {
 }
 
 OpResult<int64_t> OpTrim(const OpArgs& op_args, const AddTrimOpts& opts) {
-  auto& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  auto& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
   auto res_it = db_slice.FindMutable(op_args.db_cntx, opts.key, OBJ_STREAM);
   if (!res_it) {
     if (res_it.status() == OpStatus::KEY_NOTFOUND) {
@@ -2814,7 +2813,7 @@ void XReadBlock(ReadOpts opts, ConnectionContext* cntx) {
 
   const auto key_checker = [&opts](EngineShard* owner, const DbContext& context, Transaction* tx,
                                    std::string_view key) -> bool {
-    auto& db_slice = context.tenant->GetCurrentDbSlice();
+    auto& db_slice = context.ns->GetCurrentDbSlice();
     auto res_it = db_slice.FindReadOnly(context, key, OBJ_STREAM);
     if (!res_it.ok())
       return false;

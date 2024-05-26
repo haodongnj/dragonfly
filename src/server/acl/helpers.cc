@@ -123,7 +123,7 @@ std::optional<std::string> MaybeParsePassword(std::string_view command, bool has
   return {};
 }
 
-std::optional<std::string> MaybeParseTenant(std::string_view command) {
+std::optional<std::string> MaybeParseNamespace(std::string_view command) {
   if (absl::StartsWith(command, "TENANT:")) {
     return std::string(command.substr(7));
   }
@@ -283,8 +283,8 @@ std::variant<User::UpdateRequest, ErrorReply> ParseAclSetUser(T args,
       continue;
     }
 
-    if (auto tenant = MaybeParseTenant(command); tenant) {
-      req.tenant = tenant;
+    if (auto ns = MaybeParseNamespace(command); ns) {
+      req.ns = ns;
       continue;
     }
 

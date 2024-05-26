@@ -239,7 +239,7 @@ class EngineShard {
 
   DefragTaskState defrag_state_;
   std::unique_ptr<TieredStorage> tiered_storage_;
-  // TODO: Move indices to Tenant
+  // TODO: Move indices to Namespace
   std::unique_ptr<ShardDocIndices> shard_search_indices_;
 
   using Counter = util::SlidingCounter<7>;

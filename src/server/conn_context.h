@@ -181,7 +181,7 @@ class ConnectionContext : public facade::ConnectionContext {
   DebugInfo last_command_debug;
 
   // TODO: to introduce proper accessors.
-  Tenant* tenant = nullptr;
+  Namespace* ns = nullptr;
   Transaction* transaction = nullptr;
   const CommandId* cid = nullptr;
   ConnectionState conn_state;

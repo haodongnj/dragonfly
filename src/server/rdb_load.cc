@@ -2065,7 +2065,7 @@ error_code RdbLoader::Load(io::Source* src) {
 
         // Active database if not existed before.
         shard_set->Add(
-            i, [dbid] { tenants->GetDefaultTenant().GetCurrentDbSlice().ActivateDb(dbid); });
+            i, [dbid] { namespaces->GetDefaultNamespace().GetCurrentDbSlice().ActivateDb(dbid); });
       }
 
       cur_db_index_ = dbid;
@@ -2440,7 +2440,7 @@ std::error_code RdbLoaderBase::FromOpaque(const OpaqueObj& opaque, CompactObj* p
 }
 
 void RdbLoader::LoadItemsBuffer(DbIndex db_ind, const ItemsBuf& ib) {
-  DbSlice& db_slice = tenants->GetDefaultTenant().GetCurrentDbSlice();
+  DbSlice& db_slice = namespaces->GetDefaultNamespace().GetCurrentDbSlice();
   DbContext db_cntx{.db_index = db_ind, .time_now_ms = GetCurrentTimeMs()};
 
   for (const auto* item : ib) {
@@ -2600,7 +2600,7 @@ void RdbLoader::PerformPostLoad(Service* service) {
   // Rebuild all search indices as only their definitions are extracted from the snapshot
   shard_set->AwaitRunningOnShardQueue([](EngineShard* es) {
     es->search_indices()->RebuildAllIndices(
-        OpArgs{es, nullptr, DbContext{&tenants->GetDefaultTenant(), 0, GetCurrentTimeMs()}});
+        OpArgs{es, nullptr, DbContext{&namespaces->GetDefaultNamespace(), 0, GetCurrentTimeMs()}});
   });
 }
 

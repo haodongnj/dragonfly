@@ -21,9 +21,9 @@
 #include "server/error.h"
 #include "server/journal/journal.h"
 #include "server/main_service.h"
+#include "server/namespaces.h"
 #include "server/server_family.h"
 #include "server/server_state.h"
-#include "server/tenant.h"
 
 ABSL_FLAG(std::string, cluster_announce_ip, "", "ip that cluster commands announce to the client");
 ABSL_FLAG(std::string, cluster_node_id, "",
@@ -446,7 +446,7 @@ void DeleteSlots(const SlotRanges& slots_ranges) {
     if (shard == nullptr)
       return;
 
-    tenants->GetDefaultTenant().GetCurrentDbSlice().FlushSlots(slots_ranges);
+    namespaces->GetDefaultNamespace().GetCurrentDbSlice().FlushSlots(slots_ranges);
   };
   shard_set->pool()->AwaitFiberOnAll(std::move(cb));
 }
@@ -595,7 +595,7 @@ void ClusterFamily::DflyClusterGetSlotInfo(CmdArgList args, ConnectionContext* c
 
     lock_guard lk(mu);
     for (auto& [slot, data] : slots_stats) {
-      data += tenants->GetDefaultTenant().GetCurrentDbSlice().GetSlotStats(slot);
+      data += namespaces->GetDefaultNamespace().GetCurrentDbSlice().GetSlotStats(slot);
     }
   };
 
@@ -672,7 +672,8 @@ static uint64_t GetKeyCount(const SlotRanges& slots) {
     uint64_t shard_keys = 0;
     for (const SlotRange& range : slots) {
       for (SlotId slot = range.start; slot <= range.end; slot++) {
-        shard_keys += tenants->GetDefaultTenant().GetCurrentDbSlice().GetSlotStats(slot).key_count;
+        shard_keys +=
+            namespaces->GetDefaultNamespace().GetCurrentDbSlice().GetSlotStats(slot).key_count;
       }
     }
     keys.fetch_add(shard_keys);
@@ -803,7 +804,7 @@ bool RemoveIncomingMigrationImpl(std::vector<std::shared_ptr<IncomingSlotMigrati
         << ", slots: " << SlotRange::ToString(*removed_ranges);
     shard_set->pool()->DispatchOnAll([removed_ranges](unsigned, ProactorBase*) {
       if (EngineShard* shard = EngineShard::tlocal(); shard) {
-        tenants->GetDefaultTenant().GetCurrentDbSlice().FlushSlots(*removed_ranges);
+        namespaces->GetDefaultNamespace().GetCurrentDbSlice().FlushSlots(*removed_ranges);
       }
     });
   }

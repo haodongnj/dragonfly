@@ -78,7 +78,7 @@ void TransactionSuspension::Start() {
 
   transaction_ = new dfly::Transaction{&cid};
 
-  auto st = transaction_->InitByArgs(&tenants->GetDefaultTenant(), 0, {});
+  auto st = transaction_->InitByArgs(&namespaces->GetDefaultNamespace(), 0, {});
   CHECK_EQ(st, OpStatus::OK);
 
   transaction_->Execute([](Transaction* t, EngineShard* shard) { return OpStatus::OK; }, false);
@@ -105,7 +105,7 @@ class BaseFamilyTest::TestConnWrapper {
 
   ConnectionContext* cmd_cntx() {
     auto cntx = static_cast<ConnectionContext*>(dummy_conn_->cntx());
-    cntx->tenant = &tenants->GetDefaultTenant();
+    cntx->ns = &namespaces->GetDefaultNamespace();
     return cntx;
   }
 
@@ -209,12 +209,12 @@ void BaseFamilyTest::ResetService() {
   used_mem_current = 0;
 
   TEST_current_time_ms = absl::GetCurrentTimeNanos() / 1000000;
-  auto default_tenant = &tenants->GetDefaultTenant();
+  auto default_ns = &namespaces->GetDefaultNamespace();
   auto cb = [&](EngineShard* s) {
-    default_tenant->GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000, 0);
+    default_ns->GetCurrentDbSlice().UpdateExpireBase(TEST_current_time_ms - 1000, 0);
   };
   shard_set->RunBriefInParallel(cb);
-  tenants->Reset();
+  namespaces->Reset();
 
   const TestInfo* const test_info = UnitTest::GetInstance()->current_test_info();
   LOG(INFO) << "Starting " << test_info->name();
@@ -248,7 +248,7 @@ void BaseFamilyTest::ResetService() {
 
           LOG(ERROR) << "TxLocks for shard " << es->shard_id();
           for (const auto& k_v :
-               tenants->GetDefaultTenant().GetCurrentDbSlice().GetDBTable(0)->trans_locks) {
+               namespaces->GetDefaultNamespace().GetCurrentDbSlice().GetDBTable(0)->trans_locks) {
             LOG(ERROR) << "Key " << k_v.first << " " << k_v.second;
           }
         }
@@ -299,9 +299,9 @@ void BaseFamilyTest::CleanupSnapshots() {
 
 unsigned BaseFamilyTest::NumLocked() {
   atomic_uint count = 0;
-  auto default_tenant = &tenants->GetDefaultTenant();
+  auto default_ns = &namespaces->GetDefaultNamespace();
   shard_set->RunBriefInParallel([&](EngineShard* shard) {
-    for (const auto& db : default_tenant->GetCurrentDbSlice().databases()) {
+    for (const auto& db : default_ns->GetCurrentDbSlice().databases()) {
       if (db == nullptr) {
         continue;
       }
@@ -380,7 +380,7 @@ RespExpr BaseFamilyTest::Run(std::string_view id, ArgSlice slice) {
   CmdArgVec args = conn_wrapper->Args(slice);
 
   auto* context = conn_wrapper->cmd_cntx();
-  context->tenant = &tenants->GetDefaultTenant();
+  context->ns = &namespaces->GetDefaultNamespace();
 
   DCHECK(context->transaction == nullptr) << id;
 
@@ -557,7 +557,7 @@ BaseFamilyTest::TestConnWrapper::GetInvalidationMessage(size_t index) const {
 }
 
 bool BaseFamilyTest::IsLocked(DbIndex db_index, std::string_view key) const {
-  return service_->IsLocked(&tenants->GetDefaultTenant(), db_index, key);
+  return service_->IsLocked(&namespaces->GetDefaultNamespace(), db_index, key);
 }
 
 string BaseFamilyTest::GetId() const {
@@ -644,7 +644,7 @@ vector<LockFp> BaseFamilyTest::GetLastFps() {
     }
 
     lock_guard lk(mu);
-    for (auto fp : tenants->GetDefaultTenant().GetCurrentDbSlice().TEST_GetLastLockedFps()) {
+    for (auto fp : namespaces->GetDefaultNamespace().GetCurrentDbSlice().TEST_GetLastLockedFps()) {
       result.push_back(fp);
     }
   };

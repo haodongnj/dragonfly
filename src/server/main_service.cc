@@ -45,13 +45,13 @@ extern "C" {
 #include "server/json_family.h"
 #include "server/list_family.h"
 #include "server/multi_command_squasher.h"
+#include "server/namespaces.h"
 #include "server/script_mgr.h"
 #include "server/search/search_family.h"
 #include "server/server_state.h"
 #include "server/set_family.h"
 #include "server/stream_family.h"
 #include "server/string_family.h"
-#include "server/tenant.h"
 #include "server/transaction.h"
 #include "server/version.h"
 #include "server/zset_family.h"
@@ -134,10 +134,10 @@ constexpr size_t kMaxThreadSize = 1024;
 
 // Unwatch all keys for a connection and unregister from DbSlices.
 // Used by UNWATCH, DICARD and EXEC.
-void UnwatchAllKeys(Tenant* tenant, ConnectionState::ExecInfo* exec_info) {
+void UnwatchAllKeys(Namespace* ns, ConnectionState::ExecInfo* exec_info) {
   if (!exec_info->watched_keys.empty()) {
     auto cb = [&](EngineShard* shard) {
-      tenant->GetCurrentDbSlice().UnregisterConnectionWatches(exec_info);
+      ns->GetCurrentDbSlice().UnregisterConnectionWatches(exec_info);
     };
     shard_set->RunBriefInParallel(std::move(cb));
   }
@@ -150,7 +150,7 @@ void MultiCleanup(ConnectionContext* cntx) {
     ServerState::tlocal()->ReturnInterpreter(borrowed);
     exec_info.preborrowed_interpreter = nullptr;
   }
-  UnwatchAllKeys(cntx->tenant, &exec_info);
+  UnwatchAllKeys(cntx->ns, &exec_info);
   exec_info.Clear();
 }
 
@@ -517,7 +517,7 @@ void Topkeys(const http::QueryArgs& args, HttpContext* send) {
     vector<string> rows(shard_set->size());
 
     shard_set->RunBriefInParallel([&](EngineShard* shard) {
-      for (const auto& db : tenants->GetDefaultTenant().GetCurrentDbSlice().databases()) {
+      for (const auto& db : namespaces->GetDefaultNamespace().GetCurrentDbSlice().databases()) {
         if (db->top_keys.IsEnabled()) {
           is_enabled = true;
           for (const auto& [key, count] : db->top_keys.GetTopKeys()) {
@@ -809,7 +809,7 @@ Service::Service(ProactorPool* pp)
 #endif
 
   shard_set = new EngineShardSet(pp);
-  tenants = new Tenants();
+  namespaces = new Namespaces();
 
   // We support less than 1024 threads and we support less than 1024 shards.
   // For example, Scan uses 10 bits in cursor to encode shard id it currently traverses.
@@ -866,7 +866,7 @@ void Service::Init(util::AcceptServer* acceptor, std::vector<facade::Listener*> 
   });
 
   shard_set->Init(shard_num, !opts.disable_time_update);
-  tenants->Init();
+  namespaces->Init();
   const auto tcp_disabled = GetFlag(FLAGS_port) == 0u;
   // We assume that listeners.front() is the main_listener
   // see dfly_main RunEngine
@@ -1142,7 +1142,7 @@ OpResult<void> OpTrackKeys(const OpArgs& op_args, const facade::Connection::Weak
   DVLOG(2) << "Start tracking keys for client ID: " << conn_ref.GetClientId()
            << " with thread ID: " << conn_ref.Thread();
 
-  DbSlice& db_slice = op_args.db_cntx.tenant->GetCurrentDbSlice();
+  DbSlice& db_slice = op_args.db_cntx.ns->GetCurrentDbSlice();
 
   // TODO: There is a bug here that we track all arguments instead of tracking only keys.
   for (auto key : args) {
@@ -1227,7 +1227,7 @@ void Service::DispatchCommand(CmdArgList args, facade::ConnectionContext* cntx) 
     if (cid->IsTransactional()) {
       dfly_cntx->transaction->MultiSwitchCmd(cid);
       OpStatus status = dfly_cntx->transaction->InitByArgs(
-          dfly_cntx->tenant, dfly_cntx->conn_state.db_index, args_no_cmd);
+          dfly_cntx->ns, dfly_cntx->conn_state.db_index, args_no_cmd);
 
       if (status != OpStatus::OK)
         return cntx->SendError(status);
@@ -1239,8 +1239,8 @@ void Service::DispatchCommand(CmdArgList args, facade::ConnectionContext* cntx) 
       dist_trans.reset(new Transaction{cid});
 
       if (!dist_trans->IsMulti()) {  // Multi command initialize themself based on their mode.
-        if (auto st = dist_trans->InitByArgs(dfly_cntx->tenant, dfly_cntx->conn_state.db_index,
-                                             args_no_cmd);
+        if (auto st =
+                dist_trans->InitByArgs(dfly_cntx->ns, dfly_cntx->conn_state.db_index, args_no_cmd);
             st != OpStatus::OK)
           return cntx->SendError(st);
       }
@@ -1559,7 +1559,7 @@ bool RequirePrivilegedAuth() {
 facade::ConnectionContext* Service::CreateContext(util::FiberSocketBase* peer,
                                                   facade::Connection* owner) {
   ConnectionContext* res = new ConnectionContext{peer, owner};
-  res->tenant = &tenants->GetOrInsert("");
+  res->ns = &namespaces->GetOrInsert("");
 
   if (peer->IsUDS()) {
     res->req_auth = false;
@@ -1584,10 +1584,10 @@ const CommandId* Service::FindCmd(std::string_view cmd) const {
   return registry_.Find(registry_.RenamedOrOriginal(cmd));
 }
 
-bool Service::IsLocked(Tenant* tenant, DbIndex db_index, std::string_view key) const {
+bool Service::IsLocked(Namespace* ns, DbIndex db_index, std::string_view key) const {
   ShardId sid = Shard(key, shard_count());
-  bool is_open = pp_.at(sid)->AwaitBrief([db_index, key, tenant] {
-    return tenant->GetCurrentDbSlice().CheckLock(IntentLock::EXCLUSIVE, db_index, key);
+  bool is_open = pp_.at(sid)->AwaitBrief([db_index, key, ns] {
+    return ns->GetCurrentDbSlice().CheckLock(IntentLock::EXCLUSIVE, db_index, key);
   });
   return !is_open;
 }
@@ -1659,7 +1659,7 @@ void Service::Watch(CmdArgList args, ConnectionContext* cntx) {
 }
 
 void Service::Unwatch(CmdArgList args, ConnectionContext* cntx) {
-  UnwatchAllKeys(cntx->tenant, &cntx->conn_state.exec_info);
+  UnwatchAllKeys(cntx->ns, &cntx->conn_state.exec_info);
   return cntx->SendOk();
 }
 
@@ -1818,7 +1818,7 @@ Transaction::MultiMode DetermineMultiMode(ScriptMgr::ScriptParams params) {
 optional<bool> StartMultiEval(DbIndex dbid, CmdArgList keys, ScriptMgr::ScriptParams params,
                               ConnectionContext* cntx) {
   Transaction* trans = cntx->transaction;
-  Tenant* tenant = cntx->tenant;
+  Namespace* ns = cntx->ns;
   Transaction::MultiMode script_mode = DetermineMultiMode(params);
   Transaction::MultiMode multi_mode = trans->GetMultiMode();
   // Check if eval is already part of a running multi transaction
@@ -1838,10 +1838,10 @@ optional<bool> StartMultiEval(DbIndex dbid, CmdArgList keys, ScriptMgr::ScriptPa
 
   switch (script_mode) {
     case Transaction::GLOBAL:
-      trans->StartMultiGlobal(tenant, dbid);
+      trans->StartMultiGlobal(ns, dbid);
       return true;
     case Transaction::LOCK_AHEAD:
-      trans->StartMultiLockedAhead(tenant, dbid, keys);
+      trans->StartMultiLockedAhead(ns, dbid, keys);
       return true;
     case Transaction::NON_ATOMIC:
       trans->StartMultiNonAtomic();
@@ -1966,7 +1966,7 @@ void Service::EvalInternal(CmdArgList args, const EvalArgs& eval_args, Interpret
     });
 
     ++ServerState::tlocal()->stats.eval_shardlocal_coordination_cnt;
-    tx->PrepareMultiForScheduleSingleHop(cntx->tenant, *sid, tx->GetDbIndex(), args);
+    tx->PrepareMultiForScheduleSingleHop(cntx->ns, *sid, tx->GetDbIndex(), args);
     tx->ScheduleSingleHop([&](Transaction*, EngineShard*) {
       boost::intrusive_ptr<Transaction> stub_tx =
           new Transaction{tx, *sid, slot_checker.GetUniqueSlotId()};
@@ -2056,7 +2056,7 @@ bool CheckWatchedKeyExpiry(ConnectionContext* cntx, const CommandRegistry& regis
   };
 
   cntx->transaction->MultiSwitchCmd(registry.Find(EXISTS));
-  cntx->transaction->InitByArgs(cntx->tenant, cntx->conn_state.db_index, CmdArgList{str_list});
+  cntx->transaction->InitByArgs(cntx->ns, cntx->conn_state.db_index, CmdArgList{str_list});
   OpStatus status = cntx->transaction->ScheduleSingleHop(std::move(cb));
   CHECK_EQ(OpStatus::OK, status);
 
@@ -2118,11 +2118,11 @@ void StartMultiExec(ConnectionContext* cntx, ConnectionState::ExecInfo* exec_inf
   auto dbid = cntx->db_index();
   switch (multi_mode) {
     case Transaction::GLOBAL:
-      trans->StartMultiGlobal(cntx->tenant, dbid);
+      trans->StartMultiGlobal(cntx->ns, dbid);
       break;
     case Transaction::LOCK_AHEAD: {
       auto vec = CollectAllKeys(exec_info);
-      trans->StartMultiLockedAhead(cntx->tenant, dbid, absl::MakeSpan(vec));
+      trans->StartMultiLockedAhead(cntx->ns, dbid, absl::MakeSpan(vec));
     } break;
     case Transaction::NON_ATOMIC:
       trans->StartMultiNonAtomic();
@@ -2212,8 +2212,7 @@ void Service::Exec(CmdArgList args, ConnectionContext* cntx) {
         CmdArgList args = absl::MakeSpan(arg_vec);
 
         if (scmd.Cid()->IsTransactional()) {
-          OpStatus st =
-              cntx->transaction->InitByArgs(cntx->tenant, cntx->conn_state.db_index, args);
+          OpStatus st = cntx->transaction->InitByArgs(cntx->ns, cntx->conn_state.db_index, args);
           if (st != OpStatus::OK) {
             cntx->SendError(st);
             break;
@@ -2465,7 +2464,7 @@ void Service::Command(CmdArgList args, ConnectionContext* cntx) {
 VarzValue::Map Service::GetVarzStats() {
   VarzValue::Map res;
 
-  Metrics m = server_family_.GetMetrics(&tenants->GetDefaultTenant());
+  Metrics m = server_family_.GetMetrics(&namespaces->GetDefaultNamespace());
   DbStats db_stats;
   for (const auto& s : m.db_stats) {
     db_stats += s;
@@ -2564,7 +2563,7 @@ void Service::OnClose(facade::ConnectionContext* cntx) {
     DCHECK(!conn_state.subscribe_info);
   }
 
-  UnwatchAllKeys(server_cntx->tenant, &conn_state.exec_info);
+  UnwatchAllKeys(server_cntx->ns, &conn_state.exec_info);
 
   DeactivateMonitoring(server_cntx);
 
